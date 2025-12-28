@@ -221,6 +221,10 @@ com.pjr22.serializer
 
 ## Example Serialized Format (JSON - Proposed)
 
+**Note:** The following was the originally proposed format. The actual implementation uses a nested format (shown below) for better readability and simplicity. The Deserializer supports both formats for backward compatibility.
+
+### Proposed Format
+
 ```json
 {
   "objects": [
@@ -263,6 +267,49 @@ com.pjr22.serializer
   ]
 }
 ```
+
+### Actual Implementation Format
+
+The actual implementation uses a nested format with inline object references:
+
+```json
+{
+  "$id": "REV-A_1001_com.example.Person",
+  "$class": "com.example.Person",
+  "serialVersionUID": 123456789,
+  "fields": {
+    "name": "John Doe",
+    "age": 30,
+    "salary": 75000.50,
+    "active": true,
+    "address": {
+      "$id": "REV-A_1002_com.example.Address",
+      "$class": "com.example.Address",
+      "fields": {
+        "street": "123 Main St",
+        "city": "Springfield",
+        "zipCode": "12345"
+      }
+    },
+    "department": {
+      "$id": "REV-A_1003_com.example.Department",
+      "$class": "com.example.Department",
+      "fields": {
+        "name": "Engineering",
+        "budget": 500000.00,
+        "manager": {
+          "$ref": "REV-A_1001_com.example.Person"
+        }
+      }
+    }
+  }
+}
+```
+
+**Key differences from proposed format:**
+- Objects are nested inline rather than in a separate `objects` array
+- Object references use `$ref` field pointing to `$id` of previously serialized objects
+- Circular references are handled using `$ref` to point back to parent objects
 
 ## Notes
 

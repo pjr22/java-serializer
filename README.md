@@ -362,8 +362,6 @@ src/com/pjr22/serialization/
 ## Documentation
 
 - [`docs/requirements-and-design.md`](docs/requirements-and-design.md) - Original requirements and design document
-- [`docs/implementation-plan.md`](docs/implementation-plan.md) - Phased implementation plan
-- [`docs/implementation-progress.md`](docs/implementation-progress.md) - Implementation progress tracking
 - [`docs/api.md`](docs/api.md) - Detailed API documentation
 - [`docs/examples.md`](docs/examples.md) - Usage examples
 

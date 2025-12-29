@@ -18,6 +18,8 @@ This document provides detailed API documentation for all public classes in the 
 - [Format Classes](#format-classes)
   - [JsonSerializer](#jsonserializer)
   - [JsonParser](#jsonparser)
+- [Utility Classes](#utility-classes)
+  - [ValueSerializer](#valueserializer)
 
 ---
 
@@ -275,6 +277,7 @@ for (Field field : fields) {
 - Excludes static fields
 - Excludes transient fields
 - Makes private fields accessible using `setAccessible(true)`
+- Skips JDK and system classes (java.*, javax.*, sun.*) to avoid module system access restrictions in Java 9+
 
 ---
 
@@ -684,6 +687,94 @@ The parser supports standard JSON escape sequences:
 - Returns `Integer` for values within Integer range
 - Returns `Long` for integers outside Integer range
 - Returns `Double` for floating point numbers
+
+---
+
+## Utility Classes
+
+### ValueSerializer
+
+**Package:** `com.pjr22.serialization.util`
+
+Utility class for serializing and deserializing JDK classes that can be constructed with a single value (String or Number). This provides a generic mechanism to handle classes like UUID, Date, Random, etc. without requiring special cases for each type.
+
+#### Methods
+
+##### `static boolean canSerializeAsValue(Class<?> clazz)`
+
+Checks if a class can be serialized as a simple value. A class is considered serializable as a simple value if it:
+1. Is a JDK class (java.* package)
+2. Has a `toString()` method that produces a reconstructible value
+3. Has either a `fromString(String)` method or a single-parameter constructor that can reliably construct a new instance from the value
+
+**Parameters:**
+- `clazz` - The class to check
+
+**Returns:** true if the class can be serialized as a simple value, false otherwise
+
+**Example:**
+```java
+boolean canSerialize = ValueSerializer.canSerializeAsValue(UUID.class); // true
+boolean canSerialize = ValueSerializer.canSerializeAsValue(String.class); // false
+```
+
+##### `static Object serializeAsValue(Object obj)`
+
+Serializes an object to a simple value (String or Number). Returns null if the object cannot be serialized as a simple value.
+
+**Parameters:**
+- `obj` - The object to serialize
+
+**Returns:** The serialized value (String, Number, or null)
+
+**Example:**
+```java
+UUID uuid = UUID.randomUUID();
+Object value = ValueSerializer.serializeAsValue(uuid); // String representation
+
+Date date = new Date();
+Object dateValue = ValueSerializer.serializeAsValue(date); // ISO 8601 string
+
+Random random = new Random();
+Object randomValue = ValueSerializer.serializeAsValue(random); // nextLong() value
+```
+
+**Supported Types:**
+- `UUID` - Serialized as string representation
+- `Date` - Serialized as ISO 8601 string format (`yyyy-MM-dd'T'HH:mm:ss.SSSZ`)
+- `Random` - Serialized as `nextLong()` value
+- Other JDK classes with `fromString(String)` method or single-parameter constructor
+
+##### `static <T> T deserializeFromValue(Object value, Class<T> targetClass)`
+
+Deserializes a simple value to an object of the specified class. Returns null if deserialization is not possible.
+
+**Parameters:**
+- `value` - The value to deserialize (String, Number, or null)
+- `targetClass` - The target class to deserialize to
+
+**Returns:** The deserialized object, or null if not possible
+
+**Example:**
+```java
+// UUID deserialization
+String uuidString = "550e8400-e29b-41d4-a716-446655440000";
+UUID uuid = ValueSerializer.deserializeFromValue(uuidString, UUID.class);
+
+// Date deserialization
+String dateString = "2025-12-29T12:30:45.123-0700";
+Date date = ValueSerializer.deserializeFromValue(dateString, Date.class);
+
+// Random deserialization
+long seed = 123456789L;
+Random random = ValueSerializer.deserializeFromValue(seed, Random.class);
+```
+
+**Deserialization Strategy:**
+1. Try `fromString(String)` static method first
+2. Try single-parameter constructor with String parameter
+3. Try single-parameter constructor with Number parameter (long, int, etc.)
+4. Return null if none of the above work
 
 ---
 

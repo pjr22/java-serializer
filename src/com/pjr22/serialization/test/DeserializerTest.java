@@ -1,12 +1,15 @@
 package com.pjr22.serialization.test;
 
 import com.pjr22.serialization.core.Deserializer;
+import com.pjr22.serialization.core.Serializer;
 import com.pjr22.serialization.core.SerializationException;
 import com.pjr22.serialization.test.data.*;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -318,6 +321,39 @@ public class DeserializerTest extends TestCase {
         assertNotNull(person, "Deserialized object should not be null");
         assertEquals("John Doe", person.getName(), "Name should match");
         assertEquals(30, person.getAge(), "Age should match");
+    }
+
+    public void testDeserializeMapWithCollectionValues() throws SerializationException, IOException {
+        Serializer serializer = new Serializer("REV-A", 1001);
+        
+        Map<String, List<String>> tagsByCategory = new HashMap<>();
+        tagsByCategory.put("skills", List.of("java", "python", "javascript"));
+        tagsByCategory.put("languages", List.of("english", "spanish"));
+        tagsByCategory.put("empty", new ArrayList<>());
+        
+        PersonWithMapOfCollections original = new PersonWithMapOfCollections("John Doe", tagsByCategory);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        serializer.serialize(original, outputStream);
+
+        String json = outputStream.toString();
+
+        Deserializer<PersonWithMapOfCollections> deserializer = new Deserializer<>(PersonWithMapOfCollections.class);
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());
+        PersonWithMapOfCollections result = deserializer.deserialize(inputStream);
+
+        assertNotNull(result, "Deserialization returned null.");
+        assertEquals("John Doe", result.getName(), "Name not deserialized correctly.");
+        assertEquals(3, result.getTagsByCategory().size(), "Map size incorrect.");
+        
+        List<String> skills = result.getTagsByCategory().get("skills");
+        assertNotNull(skills, "Skills list not found.");
+        assertEquals(3, skills.size(), "Skills list size incorrect.");
+        assertEquals("java", skills.get(0), "First skill incorrect.");
+        
+        List<String> empty = result.getTagsByCategory().get("empty");
+        assertNotNull(empty, "Empty list not found.");
+        assertEquals(0, empty.size(), "Empty list should have size 0.");
     }
 
     public static void main(String[] args) {

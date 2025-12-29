@@ -20,6 +20,7 @@ public class TestRunner {
         runTest("ObjectIdGeneratorTest", ObjectIdGeneratorTest::new);
         runTest("FieldInspectorTest", FieldInspectorTest::new);
         runTest("ObjectRegistryTest", ObjectRegistryTest::new);
+        runTest("ValueSerializerTest", ValueSerializerTest::new);
         runTest("SerializerTest", SerializerTest::new);
         runTest("DeserializerTest", DeserializerTest::new);
         runTest("IntegrationTest", IntegrationTest::new);

@@ -8,15 +8,16 @@ A lightweight, dependency-free Java library for serializing and deserializing Ja
 - **JSON Format**: Human-readable JSON output for easy debugging and interoperability
 - **Complex Object Graphs**: Handles nested objects, collections, arrays, and maps
 - **Circular References**: Properly handles object references and circular dependencies
-- **Type Support**: 
+- **Type Support**:
   - Primitive types (byte, short, int, long, float, double, char, boolean)
   - String and Character
   - Number types (including BigDecimal)
-  - Atomic types (AtomicBoolean, AtomicInteger, AtomicLong)
+  - Atomic types (AtomicBoolean, AtomicInteger, AtomicLong, AtomicReference)
   - Collections (List, Set, etc.)
   - Maps
   - Arrays
   - Enums
+  - JDK types (UUID, Date, Random, etc.) - Serialized as string representation or numeric value
 - **Inheritance**: Supports serialization/deserialization of class hierarchies
 - **Immutable Objects**: Works with immutable classes using constructor injection
 - **Final Fields**: Handles final fields via constructor or reflection
@@ -280,6 +281,20 @@ Registry for storing objects during deserialization.
 - `void clear()` - Clears all registered objects
 - `Set<String> getAllObjectIds()` - Returns all registered object IDs
 - `int size()` - Returns the number of registered objects
+
+### Utility Classes
+
+#### [`ValueSerializer`](src/com/pjr22/serialization/util/ValueSerializer.java)
+Utility class for serializing and deserializing JDK classes that can be constructed with a single value (String or Number).
+
+- `static boolean canSerializeAsValue(Class<?> clazz)` - Checks if a class can be serialized as a simple value
+- `static Object serializeAsValue(Object obj)` - Serializes an object to a simple value (String or Number)
+- `static <T> T deserializeFromValue(Object value, Class<T> targetClass)` - Deserializes a simple value to an object
+
+**Supported JDK Types:**
+- `UUID` - Serialized as string representation, deserialized via `UUID.fromString()`
+- `Date` - Serialized as ISO 8601 string format (`yyyy-MM-dd'T'HH:mm:ss.SSSZ`), deserialized via `SimpleDateFormat`
+- `Random` - Serialized as `nextLong()` value, deserialized via `Random(long)` constructor
 
 ### Format Classes
 

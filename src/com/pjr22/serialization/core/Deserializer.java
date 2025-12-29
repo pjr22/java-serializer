@@ -4,6 +4,7 @@ import com.pjr22.serialization.format.JsonParser;
 import com.pjr22.serialization.inspector.ConstructorAnalyzer;
 import com.pjr22.serialization.inspector.FieldInspector;
 import com.pjr22.serialization.registry.ObjectRegistry;
+import com.pjr22.serialization.util.ValueSerializer;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +22,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Deserializes Java objects from JSON format.
@@ -175,6 +180,50 @@ public class Deserializer<T> {
             if (map.containsKey("$id") && map.containsKey("$class")) {
                 String objectId = (String) map.get("$id");
                 String className = (String) map.get("$class");
+
+                // Check if this is a simple value format (for JDK classes)
+                if (map.containsKey("$value")) {
+                    try {
+                        Class<?> clazz = Class.forName(className);
+                        Object value = map.get("$value");
+                        // Strip quotes from JSON string values if present
+                        Object rawValue = value;
+                        if (value instanceof String) {
+                            String strValue = (String) value;
+                            if (strValue.startsWith("\"") && strValue.endsWith("\"") && strValue.length() > 1) {
+                                rawValue = strValue.substring(1, strValue.length() - 1);
+                            }
+                        }
+                        Object instance = ValueSerializer.deserializeFromValue(rawValue, clazz);
+                        
+                        if (instance != null) {
+                            // Successfully deserialized from value
+                            objectRegistry.register(objectId, instance);
+                            return instance;
+                        } else {
+                            // Fallback to regular object deserialization
+                            Map<String, Object> fields = (Map<String, Object>) map.get("fields");
+                            Object existing = objectRegistry.get(objectId);
+                            if (existing != null) {
+                                return existing;
+                            }
+                            
+                            // Check serialVersionUID
+                            if (map.containsKey("serialVersionUID")) {
+                                checkSerialVersionUID(clazz, map.get("serialVersionUID"));
+                            }
+                            
+                            instance = createInstance(clazz, fields.keySet());
+                            objectRegistry.register(objectId, instance);
+                            setFields(instance, clazz, fields, new HashMap<>());
+                            return instance;
+                        }
+                    } catch (ClassNotFoundException e) {
+                        throw new SerializationException("Class not found: " + className, e);
+                    }
+                }
+
+                // Regular object with fields
                 Map<String, Object> fields = (Map<String, Object>) map.get("fields");
 
                 // Check if already deserialized
@@ -325,6 +374,49 @@ public class Deserializer<T> {
             return;
         }
 
+        // Handle JDK classes that can be deserialized from a simple value
+        if (ValueSerializer.canSerializeAsValue(fieldType)) {
+            Object deserialized = ValueSerializer.deserializeFromValue(value, fieldType);
+            if (deserialized != null) {
+                field.set(instance, deserialized);
+                return;
+            }
+        }
+
+        // Handle AtomicReference
+        if (fieldType == AtomicReference.class) {
+            Object refValue;
+            if (value instanceof Map) {
+                // Deserialize the nested object
+                refValue = deserializeObject(value);
+            } else {
+                refValue = value;
+            }
+            field.set(instance, new AtomicReference<>(refValue));
+            return;
+        }
+
+        // Handle AtomicBoolean
+        if (fieldType == AtomicBoolean.class) {
+            boolean boolValue = convertToBoolean(value);
+            field.set(instance, new AtomicBoolean(boolValue));
+            return;
+        }
+
+        // Handle AtomicInteger
+        if (fieldType == AtomicInteger.class) {
+            int intValue = convertToInt(value);
+            field.set(instance, new AtomicInteger(intValue));
+            return;
+        }
+
+        // Handle AtomicLong
+        if (fieldType == AtomicLong.class) {
+            long longValue = convertToLong(value);
+            field.set(instance, new AtomicLong(longValue));
+            return;
+        }
+
         // Handle primitive types
         if (fieldType == boolean.class || fieldType == Boolean.class) {
             field.set(instance, convertToBoolean(value));
@@ -357,7 +449,7 @@ public class Deserializer<T> {
         } else if (Collection.class.isAssignableFrom(fieldType)) {
             field.set(instance, convertToCollection(fieldType, value));
         } else if (Map.class.isAssignableFrom(fieldType)) {
-            field.set(instance, convertToMap(fieldType, value));
+            field.set(instance, convertToMap(field, value));
         } else if (value instanceof Map) {
             // This might be a nested object
             Object nested = deserializeObject(value);
@@ -569,11 +661,68 @@ public class Deserializer<T> {
     }
 
     @SuppressWarnings("unchecked")
-    private Object convertToMap(Class<?> mapType, Object value) {
+    private Object convertToMap(Field field, Object value) throws SerializationException {
         if (value == null) return null;
         if (!(value instanceof Map)) return value;
 
-        return new LinkedHashMap<>((Map<String, Object>) value);
+        Map<String, Object> parsedMap = (Map<String, Object>) value;
+        
+        // Check if the map type has a generic parameter for the key
+        // We need to determine the key type to handle enum keys
+        try {
+            // Get the generic type from the field to find the key type
+            java.lang.reflect.Type genericType = field.getGenericType();
+            Class<?> keyType = String.class; // default
+            
+            if (genericType instanceof java.lang.reflect.ParameterizedType) {
+                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
+                java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+                if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
+                    keyType = (Class<?>) typeArgs[0];
+                }
+            }
+            
+            // If key type is an enum, we need to convert string keys to enum values
+            if (keyType.isEnum()) {
+                Map<Object, Object> result = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
+                    Object enumKey = convertToEnum(keyType, entry.getKey());
+                    // Deserialize the value if it's a nested object
+                    Object mapValue = entry.getValue();
+                    if (mapValue instanceof Map) {
+                        mapValue = deserializeObject(mapValue);
+                    }
+                    result.put(enumKey, mapValue);
+                }
+                return result;
+            }
+            
+            // For non-enum key maps, also deserialize nested objects in values
+            Map<Object, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
+                // Deserialize the value if it's a nested object or collection
+                Object mapValue = entry.getValue();
+                if (mapValue instanceof Map) {
+                    mapValue = deserializeObject(mapValue);
+                } else if (mapValue instanceof List) {
+                    // List values may contain nested objects - deserialize each element
+                    List<Object> deserializedList = new ArrayList<>();
+                    for (Object item : (List<?>) mapValue) {
+                        if (item instanceof Map) {
+                            deserializedList.add(deserializeObject(item));
+                        } else {
+                            deserializedList.add(item);
+                        }
+                    }
+                    mapValue = deserializedList;
+                }
+                result.put(entry.getKey(), mapValue);
+            }
+            return result;
+        } catch (Exception e) {
+            // If we can't determine the key type, just return the map as-is
+            return new LinkedHashMap<>(parsedMap);
+        }
     }
 
     /**

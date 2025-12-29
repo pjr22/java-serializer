@@ -10,20 +10,23 @@ This document provides comprehensive usage examples for the Java Serializer/Dese
   - [Numbers and BigDecimal](#numbers-and-bigdecimal)
   - [Atomic Types](#atomic-types)
   - [Enums](#enums)
-- [Working with Collections](#working-with-collections)
-- [Working with Maps](#working-with-maps)
-- [Working with Arrays](#working-with-arrays)
-- [Object References](#object-references)
-- [Circular References](#circular-references)
-- [Inheritance](#inheritance)
-- [Immutable Objects](#immutable-objects)
-- [Final Fields](#final-fields)
-- [Null Fields](#null-fields)
-- [Static and Transient Fields](#static-and-transient-fields)
-- [SerialVersionUID](#serialversionuid)
-- [Error Handling](#error-handling)
-- [Working with Files](#working-with-files)
-- [Advanced Usage](#advanced-usage)
+  - [Working with Date](#working-with-date)
+  - [Working with Random](#working-with-random)
+  - [Working with UUID](#working-with-uuid)
+  - [Working with Collections](#working-with-collections)
+  - [Working with Maps](#working-with-maps)
+  - [Working with Arrays](#working-with-arrays)
+  - [Object References](#object-references)
+  - [Circular References](#circular-references)
+  - [Inheritance](#inheritance)
+  - [Immutable Objects](#immutable-objects)
+  - [Final Fields](#final-fields)
+  - [Null Fields](#null-fields)
+  - [Static and Transient Fields](#static-and-transient-fields)
+  - [SerialVersionUID](#serialversionuid)
+  - [Error Handling](#error-handling)
+  - [Working with Files](#working-with-files)
+  - [Advanced Usage](#advanced-usage)
   - [Using ObjectIdGenerator Directly](#using-objectidgenerator-directly)
   - [Using ObjectRegistry Directly](#using-objectregistry-directly)
   - [Using FieldInspector and FieldClassifier](#using-fieldinspector-and-fieldclassifier)
@@ -144,6 +147,7 @@ assert result.getManager().getName().equals("Bob Johnson");
 ```java
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 // Create an object with atomic fields
 PersonWithAtomic person = new PersonWithAtomic();
@@ -164,6 +168,46 @@ PersonWithAtomic result = deserializer.deserialize(inputStream);
 assert result.getName().equals("Charlie Brown");
 assert result.getCounter().get() == 100;
 assert result.getFlag().get() == true;
+```
+
+### AtomicReference with Complex Type
+
+```java
+import java.util.concurrent.atomic.AtomicReference;
+
+// Create a complex address object
+Address address = new Address();
+address.setStreet("789 Pine Road");
+address.setCity("Capital City");
+address.setZipCode("54321");
+
+// Create an object with AtomicReference to a complex type
+PersonWithAtomic person = new PersonWithAtomic();
+person.setName("Jane Smith");
+person.setCounter(new AtomicInteger(100));
+person.setFlag(new AtomicBoolean(true));
+person.setAddress(new AtomicReference<>(address));
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(person, outputStream);
+
+Deserializer<PersonWithAtomic> deserializer = new Deserializer<>(PersonWithAtomic.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+PersonWithAtomic result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("Jane Smith");
+assert result.getCounter().get() == 100;
+assert result.getFlag().get() == true;
+
+// Verify AtomicReference<Address> was properly serialized and deserialized
+assert result.getAddress() != null;
+assert result.getAddress().get() != null;
+assert result.getAddress().get().getStreet().equals("789 Pine Road");
+assert result.getAddress().get().getCity().equals("Capital City");
+assert result.getAddress().get().getZipCode().equals("54321");
 ```
 
 ### Enums
@@ -192,6 +236,97 @@ PersonWithEnum result = deserializer.deserialize(inputStream);
 assert result.getName().equals("David Wilson");
 assert result.getStatus() == Status.ACTIVE;
 ```
+
+---
+
+## Working with Date
+
+```java
+import java.util.Date;
+
+// Create an object with Date field
+PersonWithDate person = new PersonWithDate();
+person.setName("Alice");
+person.setBirthDate(new Date());
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(person, outputStream);
+
+Deserializer<PersonWithDate> deserializer = new Deserializer<>(PersonWithDate.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+PersonWithDate result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("Alice");
+assert result.getBirthDate().getTime() == person.getBirthDate().getTime();
+```
+
+**Note:** Date is serialized as ISO 8601 string format (`yyyy-MM-dd'T'HH:mm:ss.SSSZ`) with millisecond precision and timezone information.
+
+---
+
+## Working with Random
+
+```java
+import java.util.Random;
+
+// Create an object with Random field
+PersonWithRandom person = new PersonWithRandom();
+person.setName("Bob");
+person.setRandomGenerator(new Random(12345L));
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(person, outputStream);
+
+Deserializer<PersonWithRandom> deserializer = new Deserializer<>(PersonWithRandom.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+PersonWithRandom result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("Bob");
+assert result.getRandomGenerator() != null;
+
+// Verify that the deserialized Random produces the same sequence
+long originalNext = new Random(12345L).nextLong();
+long deserializedNext = result.getRandomGenerator().nextLong();
+assert originalNext == deserializedNext;
+```
+
+**Note:** Random is serialized as the value returned by `nextLong()`. On deserialization, a new `Random` is constructed using this value as the seed. This ensures that the deserialized Random produces the same sequence of random numbers as the original.
+
+---
+
+## Working with UUID
+
+```java
+import java.util.UUID;
+
+// Create an object with UUID fields
+PersonWithUUID person = new PersonWithUUID();
+person.setName("Alice");
+person.setId(UUID.randomUUID());
+person.setSecondaryId(UUID.randomUUID());
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(person, outputStream);
+
+Deserializer<PersonWithUUID> deserializer = new Deserializer<>(PersonWithUUID.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+PersonWithUUID result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("Alice");
+assert result.getId().equals(person.getId());
+assert result.getSecondaryId().equals(person.getSecondaryId());
+```
+
+**Note:** UUID and other JDK types are serialized as their string representation and deserialized using their `fromString()` method.
 
 ---
 
@@ -324,6 +459,54 @@ assert result.getName().equals("Henry Ford");
 assert result.getProperties().get("department").equals("Engineering");
 assert result.getProperties().get("location").equals("Detroit");
 ```
+
+---
+
+## Map with Collection Values
+
+### Map<String, List<String>>
+
+```java
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+// Create an object with Map<String, List<String>>
+Map<String, List<String>> tagsByCategory = new HashMap<>();
+tagsByCategory.put("skills", List.of("java", "python", "javascript"));
+tagsByCategory.put("languages", List.of("english", "spanish"));
+tagsByCategory.put("empty", new ArrayList<>());
+
+PersonWithMapOfCollections person = new PersonWithMapOfCollections("John Doe", tagsByCategory);
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(person, outputStream);
+
+Deserializer<PersonWithMapOfCollections> deserializer = new Deserializer<>(PersonWithMapOfCollections.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+PersonWithMapOfCollections result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("John Doe");
+assert result.getTagsByCategory().size() == 3;
+assert result.getTagsByCategory().get("skills").size() == 3;
+```
+
+**Output:**
+```
+Serialized JSON:
+{"$id":"app_1_com.example.PersonWithMapOfCollections","$class":"com.example.PersonWithMapOfCollections","fields":{"name":"John Doe","tagsByCategory":{"skills":["java","python","javascript"],"languages":["english","spanish"],"empty":[]}}
+
+Deserialized object:
+Name: John Doe
+Map size: 3
+Skills: [java, python, javascript]
+```
+
+**Note:** Collections in maps are serialized as JSON arrays (`[]`) without metadata. This produces idiomatic JSON and reduces output size.
 
 ---
 

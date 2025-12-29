@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Serializes Java objects to JSON format.
@@ -58,6 +59,10 @@ public class JsonSerializer {
         }
         if (value instanceof AtomicLong) {
             return String.valueOf(((AtomicLong) value).get());
+        }
+        if (value instanceof AtomicReference) {
+            Object refValue = ((AtomicReference<?>) value).get();
+            return refValue != null ? serialize(refValue) : "null";
         }
 
         // Handle arrays
@@ -150,7 +155,15 @@ public class JsonSerializer {
             if (!first) {
                 sb.append(",");
             }
-            sb.append("\"").append(escapeJson(entry.getKey().toString())).append("\":");
+            Object key = entry.getKey();
+            String keyString;
+            // For enum keys, use the name() method to avoid potential issues with toString()
+            if (key != null && key.getClass().isEnum()) {
+                keyString = ((Enum<?>) key).name();
+            } else {
+                keyString = key.toString();
+            }
+            sb.append("\"").append(escapeJson(keyString)).append("\":");
             sb.append(serialize(entry.getValue()));
             first = false;
         }

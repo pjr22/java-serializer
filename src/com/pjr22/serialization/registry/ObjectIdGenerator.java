@@ -2,7 +2,7 @@ package com.pjr22.serialization.registry;
 
 /**
  * Generates unique object IDs for serialization.
- * IDs are generated in the format: {serializationKey}_{counter}_{className}
+ * IDs are generated in the format: {serializationKey}_{counter}
  * Each generator instance maintains its own independent counter.
  */
 public class ObjectIdGenerator {
@@ -11,10 +11,10 @@ public class ObjectIdGenerator {
     private int counter;
 
     /**
-     * Creates a new ObjectIdGenerator with the specified serialization key and starting ID.
+     * Creates a new ObjectIdGenerator with specified serialization key and starting ID.
      *
-     * @param serializationKey the prefix to use for all generated IDs
-     * @param startingId the starting value for the counter
+     * @param serializationKey prefix to use for all generated IDs
+     * @param startingId starting value for the counter
      */
     public ObjectIdGenerator(String serializationKey, int startingId) {
         this.serializationKey = serializationKey;
@@ -22,15 +22,14 @@ public class ObjectIdGenerator {
     }
 
     /**
-     * Generates a unique object ID for the given class name.
-     * The ID format is: {serializationKey}_{counter}_{className}
+     * Generates a unique object ID.
+     * The ID format is: {serializationKey}_{counter}
      * The counter is incremented after each call.
      *
-     * @param className the fully qualified class name
-     * @return the generated object ID
+     * @return generated object ID
      */
-    public String generateId(String className) {
-        String id = serializationKey + "_" + counter + "_" + className;
+    public String generateId() {
+        String id = serializationKey + "_" + counter;
         counter++;
         return id;
     }

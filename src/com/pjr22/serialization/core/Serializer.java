@@ -5,6 +5,7 @@ import com.pjr22.serialization.inspector.FieldClassifier;
 import com.pjr22.serialization.inspector.FieldInspector;
 import com.pjr22.serialization.registry.ObjectIdGenerator;
 import com.pjr22.serialization.registry.ObjectRegistry;
+import com.pjr22.serialization.util.ValueSerializer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -72,8 +73,26 @@ public class Serializer {
             return "{\"$ref\":\"" + objectToIdMap.get(object) + "\"}";
         }
 
+        // Check if this is a JDK class that can be serialized as a simple value
+        if (ValueSerializer.canSerializeAsValue(object.getClass())) {
+            Object value = ValueSerializer.serializeAsValue(object);
+            if (value != null) {
+                // Serialize as a simple value with class metadata
+                String objectId = idGenerator.generateId();
+                objectToIdMap.put(object, objectId);
+                objectRegistry.register(objectId, object);
+                
+                StringBuilder sb = new StringBuilder();
+                sb.append("{");
+                sb.append("\"$id\":\"").append(objectId).append("\",");
+                sb.append("\"$class\":\"").append(object.getClass().getName()).append("\",");
+                sb.append("\"$value\":").append(JsonSerializer.serialize(value)).append("}");
+                return sb.toString();
+            }
+        }
+
         // Generate object ID and register it
-        String objectId = idGenerator.generateId(object.getClass().getName());
+        String objectId = idGenerator.generateId();
         objectToIdMap.put(object, objectId);
         objectRegistry.register(objectId, object);
 
@@ -138,6 +157,36 @@ public class Serializer {
                     case ENUM:
                         // Native JSON types - serialize directly
                         sb.append(JsonSerializer.serialize(fieldValue));
+                        break;
+                    
+                    case VALUE_SERIALIZABLE:
+                        // Value-serializable types - serialize using ValueSerializer
+                        Object value = ValueSerializer.serializeAsValue(fieldValue);
+                        if (value != null) {
+                            // Serialize the value (which may be a String or Number)
+                            sb.append(JsonSerializer.serialize(value));
+                        } else {
+                            // Fallback to object serialization
+                            sb.append(serializeObject(fieldValue));
+                        }
+                        break;
+                    
+                    case ATOMIC_REFERENCE:
+                        // AtomicReference - extract the referenced value and serialize appropriately
+                        if (fieldValue == null) {
+                            sb.append("null");
+                        } else {
+                            Object refValue = ((java.util.concurrent.atomic.AtomicReference<?>) fieldValue).get();
+                            if (refValue == null) {
+                                sb.append("null");
+                            } else if (isSimpleType(refValue)) {
+                                // Simple type - use JsonSerializer
+                                sb.append(JsonSerializer.serialize(refValue));
+                            } else {
+                                // Complex object - serialize as nested object
+                                sb.append(serializeObject(refValue));
+                            }
+                        }
                         break;
 
                     case COLLECTION:
@@ -229,8 +278,18 @@ public class Serializer {
             }
             first = false;
 
-            // Key
-            sb.append("\"").append(JsonSerializer.serialize(entry.getKey())).append("\":");
+            // Key - serialize as string without double-quoting
+            Object key = entry.getKey();
+            String keyString;
+            // For enum keys, use the name() method to get the enum constant name
+            if (key != null && key.getClass().isEnum()) {
+                keyString = ((Enum<?>) key).name();
+            } else if (key != null) {
+                keyString = key.toString();
+            } else {
+                keyString = "null";
+            }
+            sb.append("\"").append(escapeJsonKey(keyString)).append("\":");
 
             // Value
             Object value = entry.getValue();
@@ -239,6 +298,12 @@ public class Serializer {
             } else if (isSimpleType(value)) {
                 // Simple type - use JsonSerializer
                 sb.append(JsonSerializer.serialize(value));
+            } else if (value instanceof Collection) {
+                // Collection - serialize as JSON array
+                sb.append(serializeCollection(value));
+            } else if (value.getClass().isArray()) {
+                // Array - serialize as JSON array
+                sb.append(serializeArray(value));
             } else {
                 // Complex object - serialize as nested object
                 sb.append(serializeObject(value));
@@ -320,7 +385,8 @@ public class Serializer {
         // Atomic types
         if (obj instanceof java.util.concurrent.atomic.AtomicBoolean ||
             obj instanceof java.util.concurrent.atomic.AtomicInteger ||
-            obj instanceof java.util.concurrent.atomic.AtomicLong) {
+            obj instanceof java.util.concurrent.atomic.AtomicLong ||
+            obj instanceof java.util.concurrent.atomic.AtomicReference) {
             return true;
         }
 
@@ -334,12 +400,70 @@ public class Serializer {
     }
 
     /**
+     * Escapes special characters in a string for JSON key use.
+     *
+     * @param str the string to escape
+     * @return the escaped string
+     */
+    private String escapeJsonKey(String str) {
+        if (str == null) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            switch (c) {
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                default:
+                    if (c < ' ') {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Gets the serialVersionUID from a class if it exists.
+     * Skips JDK and system classes to avoid module system access restrictions.
      *
      * @param clazz the class to check
      * @return the serialVersionUID value, or null if not present
      */
     private Long getSerialVersionUID(Class<?> clazz) {
+        // Skip JDK and system classes - they don't need serialVersionUID for this library
+        // This prevents InaccessibleObjectException in Java 9+ when trying to access
+        // private fields in java.* packages via reflection
+        if (clazz.getClassLoader() == null ||
+            clazz.getName().startsWith("java.") ||
+            clazz.getName().startsWith("javax.") ||
+            clazz.getName().startsWith("sun.")) {
+            return null;
+        }
+        
         try {
             Field field = clazz.getDeclaredField("serialVersionUID");
             field.setAccessible(true);

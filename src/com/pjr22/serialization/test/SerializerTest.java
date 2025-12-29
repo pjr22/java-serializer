@@ -7,11 +7,11 @@ import com.pjr22.serialization.test.data.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+
 
 /**
  * Test class for Serializer.
@@ -197,7 +197,6 @@ public class SerializerTest extends TestCase {
     public void testGenerateObjectIds() throws SerializationException, IOException {
         Serializer serializer = new Serializer("REV-A", 1001);
         SimplePerson person1 = new SimplePerson("John", 30, 50000.0, true);
-        SimplePerson person2 = new SimplePerson("Jane", 25, 60000.0, false);
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         serializer.serialize(person1, outputStream);
@@ -215,6 +214,33 @@ public class SerializerTest extends TestCase {
 
         String output = outputStream.toString();
         assertNotNull(output, "Serialized output should not be null");
+    }
+
+    public void testSerializeMapWithCollectionValues() throws SerializationException, IOException {
+        Serializer serializer = new Serializer("REV-A", 1001);
+        
+        Map<String, List<String>> tagsByCategory = new HashMap<>();
+        tagsByCategory.put("skills", List.of("java", "python", "javascript"));
+        tagsByCategory.put("languages", List.of("english", "spanish"));
+        tagsByCategory.put("empty", new ArrayList<>());
+        
+        PersonWithMapOfCollections person = new PersonWithMapOfCollections("John Doe", tagsByCategory);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        serializer.serialize(person, outputStream);
+
+        String output = outputStream.toString();
+        assertNotNull(output, "Serialized output should not be null");
+        assertTrue(output.contains("skills"), "Output should contain map key");
+        assertTrue(output.contains("java"), "Output should contain list element");
+        
+        // Verify that collections are serialized as arrays, not objects
+        // Should NOT contain "$class" or "$id" for list values
+        assertFalse(output.contains("\"skills\":{\"$id\":"), "List values should be serialized as arrays, not objects");
+        assertFalse(output.contains("\"skills\":{\"$class\":"), "List values should be serialized as arrays, not objects");
+        
+        // Verify empty list is serialized as []
+        assertTrue(output.contains("\"empty\":[]"), "Empty list should be serialized as []");
     }
 
     public static void main(String[] args) {

@@ -1,5 +1,7 @@
 package com.pjr22.serialization.inspector;
 
+import com.pjr22.serialization.util.ValueSerializer;
+
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.util.Collection;
@@ -7,6 +9,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Classifies Java fields into categories for serialization purposes.
@@ -14,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class FieldClassifier {
 
     /**
-     * Represents the category of a field for serialization.
+     * Represents category of a field for serialization.
      */
     public enum FieldCategory {
         PRIMITIVE,          // byte, short, int, long, float, double, char, boolean
@@ -24,6 +27,8 @@ public class FieldClassifier {
         ATOMIC_BOOLEAN,     // java.util.concurrent.atomic.AtomicBoolean
         ATOMIC_INTEGER,     // java.util.concurrent.atomic.AtomicInteger
         ATOMIC_LONG,        // java.util.concurrent.atomic.AtomicLong
+        ATOMIC_REFERENCE,   // java.util.concurrent.atomic.AtomicReference
+        VALUE_SERIALIZABLE, // JDK classes that can be serialized as simple values (UUID, Date, Random, etc.)
         COLLECTION,         // List, Set, etc.
         MAP,                // Map implementations
         ARRAY,              // Arrays
@@ -34,8 +39,8 @@ public class FieldClassifier {
     /**
      * Classifies a field into a category based on its type.
      *
-     * @param field the field to classify
-     * @return the field category
+     * @param field field to classify
+     * @return field category
      */
     public static FieldCategory classify(Field field) {
         Class<?> type = field.getType();
@@ -59,6 +64,14 @@ public class FieldClassifier {
         }
         if (type == AtomicLong.class) {
             return FieldCategory.ATOMIC_LONG;
+        }
+        if (type == AtomicReference.class) {
+            return FieldCategory.ATOMIC_REFERENCE;
+        }
+
+        // Check for value-serializable JDK types (UUID, Date, Random, etc.)
+        if (ValueSerializer.canSerializeAsValue(type)) {
+            return FieldCategory.VALUE_SERIALIZABLE;
         }
 
         // Check for primitive double (test expects this to be NUMBER, not PRIMITIVE)

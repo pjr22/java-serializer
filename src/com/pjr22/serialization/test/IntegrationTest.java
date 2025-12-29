@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 /**
  * Integration tests for end-to-end serialization and deserialization.
@@ -183,21 +184,13 @@ public class IntegrationTest extends TestCase {
         Serializer serializer = new Serializer("REV-A", 1001);
 
         // Create a complex object graph
-        Address address1 = new Address("123 Main St", "Springfield", "12345");
-        Address address2 = new Address("456 Oak Ave", "Shelbyville", "67890");
-
+        Address address = new Address("123 Main St", "Springfield", "12345");
         SimplePerson manager = new SimplePerson("Alice Manager", 45, 120000.0, true);
-        SimplePerson employee1 = new SimplePerson("Bob Developer", 30, 75000.0, true);
-        SimplePerson employee2 = new SimplePerson("Carol Engineer", 35, 85000.0, true);
-
-        Department dept1 = new Department("Engineering", new BigDecimal("1000000.00"), manager);
-        Department dept2 = new Department("QA", new BigDecimal("500000.00"), manager);
-
-        PersonWithReferences person1 = new PersonWithReferences("Bob", address1, dept1);
-        PersonWithReferences person2 = new PersonWithReferences("Carol", address2, dept2);
+        Department department = new Department("Engineering", new BigDecimal("1000000.00"), manager);
+        PersonWithReferences person = new PersonWithReferences("Bob", address, department);
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        serializer.serialize(person1, outputStream);
+        serializer.serialize(person, outputStream);
 
         String json = outputStream.toString();
 
@@ -211,6 +204,62 @@ public class IntegrationTest extends TestCase {
         assertEquals("123 Main St", deserialized.getAddress().getStreet(), "Address street should match");
         assertNotNull(deserialized.getDepartment(), "Department should not be null");
         assertEquals("Engineering", deserialized.getDepartment().getName(), "Department name should match");
+    }
+
+    public void testAtomicReferenceWithComplexTypeRoundTrip() throws SerializationException, IOException {
+        Serializer serializer = new Serializer("REV-A", 1001);
+        
+        // Create a complex address object
+        Address address = new Address("789 Pine Road", "Capital City", "54321");
+        
+        // Create a person with an AtomicReference to a complex Address object
+        PersonWithAtomic original = new PersonWithAtomic("Jane Smith", 100, true, address);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        serializer.serialize(original, outputStream);
+
+        String json = outputStream.toString();
+
+        Deserializer<PersonWithAtomic> deserializer = new Deserializer<>(PersonWithAtomic.class);
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());
+        PersonWithAtomic deserialized = deserializer.deserialize(inputStream);
+
+        assertNotNull(deserialized, "Deserialized object should not be null");
+        assertEquals(original.getName(), deserialized.getName(), "Name should match");
+        assertEquals(original.getCounter().get(), deserialized.getCounter().get(), "Counter should match");
+        assertEquals(original.getFlag().get(), deserialized.getFlag().get(), "Flag should match");
+        
+        // Verify AtomicReference<Address> was properly serialized and deserialized
+        assertNotNull(deserialized.getAddress(), "Address AtomicReference should not be null");
+        assertNotNull(deserialized.getAddress().get(), "Address object inside AtomicReference should not be null");
+        assertEquals(original.getAddress().get().getStreet(), deserialized.getAddress().get().getStreet(),
+            "Address street should match");
+        assertEquals(original.getAddress().get().getCity(), deserialized.getAddress().get().getCity(),
+            "Address city should match");
+        assertEquals(original.getAddress().get().getZipCode(), deserialized.getAddress().get().getZipCode(),
+            "Address zipCode should match");
+    }
+
+    public void testObjectWithUUIDRoundTrip() throws SerializationException, IOException {
+        Serializer serializer = new Serializer("REV-A", 1001);
+        
+        // Create a person with UUID fields
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        PersonWithUUID original = new PersonWithUUID("John Doe", id1, id2);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        serializer.serialize(original, outputStream);
+
+        String json = outputStream.toString();
+        Deserializer<PersonWithUUID> deserializer = new Deserializer<>(PersonWithUUID.class);
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());
+        PersonWithUUID deserialized = deserializer.deserialize(inputStream);
+
+        assertNotNull(deserialized, "Deserialized object should not be null");
+        assertEquals(original.getName(), deserialized.getName(), "Name should match");
+        assertEquals(original.getId(), deserialized.getId(), "Primary UUID should match");
+        assertEquals(original.getSecondaryId(), deserialized.getSecondaryId(), "Secondary UUID should match");
     }
 
     public static void main(String[] args) {

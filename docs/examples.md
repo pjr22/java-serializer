@@ -14,12 +14,14 @@ This document provides comprehensive usage examples for the Java Serializer/Dese
   - [Working with Random](#working-with-random)
   - [Working with UUID](#working-with-uuid)
   - [Working with Collections](#working-with-collections)
+  - [Collection Interface Types](#collection-interface-types)
   - [Working with Maps](#working-with-maps)
   - [Working with Arrays](#working-with-arrays)
   - [Object References](#object-references)
   - [Circular References](#circular-references)
   - [Inheritance](#inheritance)
   - [Immutable Objects](#immutable-objects)
+  - [Non-Public Constructors](#non-public-constructors)
   - [Final Fields](#final-fields)
   - [Null Fields](#null-fields)
   - [Static and Transient Fields](#static-and-transient-fields)
@@ -427,9 +429,158 @@ assert result.getAddresses().size() == 2;
 assert result.getAddresses().get(0).getCity().equals("New York");
 ```
 
+### Queue Interface
+
+The library automatically deserializes collection fields to the appropriate type based on the field type. For example, a `Queue<String>` field will be deserialized as a `LinkedList` (which implements `Queue`).
+
+```java
+import java.util.Queue;
+import java.util.LinkedList;
+
+// Game character with active effects queue
+class GameCharacter {
+    private String name;
+    private Queue<String> activeEffects = new LinkedList<>();
+    
+    // getters and setters...
+}
+
+// Create character
+GameCharacter hero = new GameCharacter();
+hero.setName("Warrior");
+hero.getActiveEffects().add("Strength Boost");
+hero.getActiveEffects().add("Shield Buff");
+hero.getActiveEffects().add("Speed Boost");
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("game", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(hero, outputStream);
+
+Deserializer<GameCharacter> deserializer = new Deserializer<>(GameCharacter.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+GameCharacter result = deserializer.deserialize(inputStream);
+
+// Verify queue is deserialized correctly
+assert result.getActiveEffects() instanceof LinkedList;
+assert result.getActiveEffects().size() == 3;
+assert result.getActiveEffects().poll().equals("Strength Boost"); // Queue method
+```
+
+### Set Interface
+
+A `Set<String>` field will be deserialized as a `LinkedHashSet` (which preserves insertion order).
+
+```java
+import java.util.Set;
+import java.util.LinkedHashSet;
+
+class TaggedItem {
+    private String name;
+    private Set<String> tags = new LinkedHashSet<>();
+    
+    // getters and setters...
+}
+
+// Create item
+TaggedItem item = new TaggedItem();
+item.setName("Laptop");
+item.getTags().add("electronics");
+item.getTags().add("portable");
+item.getTags().add("work");
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(item, outputStream);
+
+Deserializer<TaggedItem> deserializer = new Deserializer<>(TaggedItem.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+TaggedItem result = deserializer.deserialize(inputStream);
+
+// Verify set is deserialized correctly
+assert result.getTags() instanceof LinkedHashSet;
+assert result.getTags().size() == 3;
+```
+
+### SortedSet Interface
+
+A `SortedSet<String>` field will be deserialized as a `TreeSet` (which maintains sorted order).
+
+```java
+import java.util.SortedSet;
+import java.util.TreeSet;
+
+class SortedWords {
+    private String description;
+    private SortedSet<String> words = new TreeSet<>();
+    
+    // getters and setters...
+}
+
+// Create sorted words
+SortedWords sw = new SortedWords();
+sw.setDescription("Alphabetical word list");
+sw.getWords().add("zebra");
+sw.getWords().add("apple");
+sw.getWords().add("banana");
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(sw, outputStream);
+
+Deserializer<SortedWords> deserializer = new Deserializer<>(SortedWords.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+SortedWords result = deserializer.deserialize(inputStream);
+
+// Verify sorted set maintains order
+Object[] words = result.getWords().toArray();
+assert words[0].equals("apple"); // First alphabetically
+assert words[1].equals("banana");
+assert words[2].equals("zebra"); // Last alphabetically
+```
+
+### Deque Interface
+
+A `Deque<String>` field will be deserialized as an `ArrayDeque` (efficient for stack/queue operations).
+
+```java
+import java.util.Deque;
+import java.util.ArrayDeque;
+
+class BrowserHistory {
+    private Deque<String> backStack = new ArrayDeque<>();
+    
+    // getters and setters...
+}
+
+// Create history
+BrowserHistory history = new BrowserHistory();
+history.getBackStack().pushFirst("page1");
+history.getBackStack().pushFirst("page2");
+history.getBackStack().pushFirst("page3");
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(history, outputStream);
+
+Deserializer<BrowserHistory> deserializer = new Deserializer<>(BrowserHistory.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+BrowserHistory result = deserializer.deserialize(inputStream);
+
+// Verify deque is deserialized correctly
+assert result.getBackStack() instanceof ArrayDeque;
+assert result.getBackStack().size() == 3;
+assert result.getBackStack().pollFirst().equals("page1"); // Deque method
+```
+
 ---
 
 ## Working with Maps
+
+### Map with String Keys
 
 ```java
 import java.util.HashMap;
@@ -459,6 +610,42 @@ assert result.getName().equals("Henry Ford");
 assert result.getProperties().get("department").equals("Engineering");
 assert result.getProperties().get("location").equals("Detroit");
 ```
+
+### Map with UUID Keys
+
+```java
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
+
+// Create an object with Map<UUID, String>
+Map<UUID, String> quests = new LinkedHashMap<>();
+UUID quest1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+UUID quest2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+quests.put(quest1, "The Lost Prayer Book");
+quests.put(quest2, "Rare Arcane Materials");
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(quests, outputStream);
+
+Deserializer<Map<UUID, String>> deserializer = new Deserializer<>(Map.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+Map<UUID, String> result = deserializer.deserialize(inputStream);
+
+// Verify keys are UUID type, not String
+for (Map.Entry<UUID, String> entry : result.entrySet()) {
+    assert entry.getKey() instanceof UUID; // true
+    assert entry.getValue() instanceof String; // true
+}
+
+// Can lookup by UUID (this would fail if keys were Strings)
+assert result.get(quest1).equals("The Lost Prayer Book");
+assert result.get(quest2).equals("Rare Arcane Materials");
+```
+
+**Note:** The deserializer uses reflection to extract generic type information from the map's `ParameterizedType`. For UUID and other JDK complex types, it uses `ValueSerializer.deserializeFromValue()` to convert string keys to the correct type.
 
 ---
 
@@ -702,6 +889,47 @@ assert result.getName().equals("Maya Lopez");
 assert result.getAge() == 32;
 assert result.getSalary() == 95000.00;
 ```
+
+---
+
+## Non-Public Constructors
+
+The library supports deserialization of objects with protected, package-private, or private constructors. This is useful for classes that use the builder pattern or have restricted constructor access.
+
+### Protected Constructor Example
+
+```java
+import java.math.BigDecimal;
+
+// ItemWithProtectedConstructor has a protected constructor
+// and a public static build method
+ItemWithProtectedConstructor item = ItemWithProtectedConstructor.build(
+    "Steel Plate",
+    new BigDecimal("15.5"),
+    500,
+    1000,
+    0
+);
+
+// Serialize and deserialize
+Serializer serializer = new Serializer("app", 1);
+ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+serializer.serialize(item, outputStream);
+
+Deserializer<ItemWithProtectedConstructor> deserializer =
+    new Deserializer<>(ItemWithProtectedConstructor.class);
+ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+ItemWithProtectedConstructor result = deserializer.deserialize(inputStream);
+
+// Verify values
+assert result.getName().equals("Steel Plate");
+assert result.getWeight().compareTo(new BigDecimal("15.5")) == 0;
+assert result.getValue() == 500;
+assert result.getTotalDamageCapacity() == 1000;
+assert result.getTotalDamageAbsorbed() == 0;
+```
+
+**Note:** The deserializer uses reflection to make non-public constructors accessible during deserialization. This allows the library to work with classes that use protected or private constructors without requiring modifications to the original class.
 
 ---
 

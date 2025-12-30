@@ -103,14 +103,30 @@ public class ConstructorAnalyzerTest extends TestCase {
     }
 
     public void testSelectConstructorWhenNoConstructorsAvailable() throws Exception {
-        // Create a class with no public constructors
-        class NoPublicConstructor {
-            private NoPublicConstructor() {}
+        // Create a class with no constructors at all
+        class NoConstructors {
+            // No constructor defined - should have default public constructor
         }
         
         Set<String> fieldNames = new HashSet<>();
-        Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(NoPublicConstructor.class, fieldNames);
-        assertNull(constructor, "Should return null when no public constructors available");
+        Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(NoConstructors.class, fieldNames);
+        assertNotNull(constructor, "Should find default constructor");
+        assertEquals(0, constructor.getParameterCount(), "Should select default constructor");
+    }
+
+    public void testSelectConstructorWithProtectedConstructor() throws Exception {
+        // Test that protected constructors can be selected
+        Set<String> fieldNames = getFieldNames(ItemWithProtectedConstructor.class);
+        Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(ItemWithProtectedConstructor.class, fieldNames);
+        assertNotNull(constructor, "Should select protected constructor");
+        assertEquals(5, constructor.getParameterCount(), "Should select constructor with 5 parameters");
+        
+        Class<?>[] paramTypes = constructor.getParameterTypes();
+        assertEquals(String.class, paramTypes[0], "First parameter should be String");
+        assertEquals(java.math.BigDecimal.class, paramTypes[1], "Second parameter should be BigDecimal");
+        assertEquals(int.class, paramTypes[2], "Third parameter should be int");
+        assertEquals(int.class, paramTypes[3], "Fourth parameter should be int");
+        assertEquals(int.class, paramTypes[4], "Fifth parameter should be int");
     }
 
     public void testSelectConstructorWithEmptyFieldNames() throws Exception {

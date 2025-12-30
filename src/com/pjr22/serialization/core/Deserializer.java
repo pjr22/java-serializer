@@ -4,6 +4,7 @@ import com.pjr22.serialization.format.JsonParser;
 import com.pjr22.serialization.inspector.ConstructorAnalyzer;
 import com.pjr22.serialization.inspector.FieldInspector;
 import com.pjr22.serialization.registry.ObjectRegistry;
+import com.pjr22.serialization.util.CollectionFactory;
 import com.pjr22.serialization.util.ValueSerializer;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -21,7 +23,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -114,7 +115,7 @@ public class Deserializer<T> {
 
             try {
                 Class<?> clazz = Class.forName(className);
-                Object instance = createInstance(clazz, fields.keySet());
+                Object instance = createInstance(clazz, fields);
                 objectRegistry.register(id, instance);
 
                 // Set field values
@@ -202,21 +203,21 @@ public class Deserializer<T> {
                             return instance;
                         } else {
                             // Fallback to regular object deserialization
-                            Map<String, Object> fields = (Map<String, Object>) map.get("fields");
-                            Object existing = objectRegistry.get(objectId);
-                            if (existing != null) {
-                                return existing;
-                            }
-                            
-                            // Check serialVersionUID
-                            if (map.containsKey("serialVersionUID")) {
-                                checkSerialVersionUID(clazz, map.get("serialVersionUID"));
-                            }
-                            
-                            instance = createInstance(clazz, fields.keySet());
-                            objectRegistry.register(objectId, instance);
-                            setFields(instance, clazz, fields, new HashMap<>());
-                            return instance;
+                                    Map<String, Object> fields = (Map<String, Object>) map.get("fields");
+                                    Object existing = objectRegistry.get(objectId);
+                                    if (existing != null) {
+                                        return existing;
+                                    }
+                                      
+                                    // Check serialVersionUID
+                                    if (map.containsKey("serialVersionUID")) {
+                                        checkSerialVersionUID(clazz, map.get("serialVersionUID"));
+                                    }
+                                      
+                                    instance = createInstance(clazz, fields);
+                                    objectRegistry.register(objectId, instance);
+                                    setFields(instance, clazz, fields, new HashMap<>());
+                                    return instance;
                         }
                     } catch (ClassNotFoundException e) {
                         throw new SerializationException("Class not found: " + className, e);
@@ -241,7 +242,7 @@ public class Deserializer<T> {
                     }
 
                     // Create instance
-                    Object instance = createInstance(clazz, fields.keySet());
+                    Object instance = createInstance(clazz, fields);
                     objectRegistry.register(objectId, instance);
 
                     // Set field values
@@ -269,24 +270,62 @@ public class Deserializer<T> {
     /**
      * Creates an instance of the specified class.
      */
-    private Object createInstance(Class<?> clazz, Set<String> fieldNames) throws SerializationException {
+    private Object createInstance(Class<?> clazz, Map<String, Object> fields) throws SerializationException {
         try {
             // Try to find a constructor with matching parameter names
-            Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(clazz, fieldNames);
+            Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(clazz, fields.keySet());
 
             if (constructor != null && constructor.getParameterCount() > 0) {
                 // Use parameterized constructor
-                return createWithConstructor(constructor, fieldNames);
+                return createWithConstructor(constructor, fields);
             }
 
-            // Try default constructor
+            // Try default constructor (no-args)
             try {
-                return clazz.getDeclaredConstructor().newInstance();
+                Constructor<?> defaultConstructor = clazz.getDeclaredConstructor();
+                defaultConstructor.setAccessible(true);
+                return defaultConstructor.newInstance();
             } catch (NoSuchMethodException e) {
-                // No default constructor - try to use any public constructor
-                Constructor<?>[] constructors = clazz.getConstructors();
+                // No default constructor - try to use first constructor with default values
+                Constructor<?>[] constructors = clazz.getDeclaredConstructors();
                 if (constructors.length > 0) {
-                    return constructors[0].newInstance(getDefaultValues(constructors[0].getParameterTypes()));
+                    Constructor<?> fallbackConstructor = constructors[0];
+                    fallbackConstructor.setAccessible(true);
+                    try {
+                        // Try to instantiate with default values for all parameters
+                        return fallbackConstructor.newInstance(getDefaultValues(fallbackConstructor.getParameterTypes()));
+                    } catch (Exception ex) {
+                        // If default values don't work, try to find suitable values
+                        Class<?>[] paramTypes = fallbackConstructor.getParameterTypes();
+                        Object[] fallbackValues = new Object[paramTypes.length];
+                        for (int i = 0; i < paramTypes.length; i++) {
+                            Class<?> paramType = paramTypes[i];
+                            // For enum types, try to find a matching constant
+                            if (paramType.isEnum()) {
+                                // Try to find an enum constant from fields that matches the parameter type
+                                for (String fieldName : fields.keySet()) {
+                                    try {
+                                        Class<?> fieldClass = Class.forName(fieldName);
+                                        if (fieldClass.isEnum() && fieldClass.equals(paramType)) {
+                                            // Found a matching enum field, use its first constant as fallback
+                                            Object[] enumConstants = fieldClass.getEnumConstants();
+                                            if (enumConstants.length > 0) {
+                                                fallbackValues[i] = enumConstants[0];
+                                                break;
+                                            }
+                                        }
+                                    } catch (ClassNotFoundException cnfe) {
+                                        // Ignore, field name might not be a class name
+                                    }
+                                }
+                            }
+                            // If no enum match found, use default value
+                            if (fallbackValues[i] == null) {
+                                fallbackValues[i] = getDefaultValue(paramTypes[i]);
+                            }
+                        }
+                        return fallbackConstructor.newInstance(fallbackValues);
+                    }
                 }
                 throw new SerializationException("No suitable constructor found for class: " + clazz.getName());
             }
@@ -299,20 +338,143 @@ public class Deserializer<T> {
     /**
      * Creates an instance using a parameterized constructor.
      */
-    private Object createWithConstructor(Constructor<?> constructor, Set<String> fieldNames) throws SerializationException {
+    private Object createWithConstructor(Constructor<?> constructor, Map<String, Object> fields) throws SerializationException {
         try {
+            constructor.setAccessible(true);
             Class<?>[] paramTypes = constructor.getParameterTypes();
             Object[] args = new Object[paramTypes.length];
+            Parameter[] parameters = constructor.getParameters();
 
             for (int i = 0; i < paramTypes.length; i++) {
-                // For now, use default values - actual values will be set via fields
-                args[i] = getDefaultValue(paramTypes[i]);
+                String paramName = parameters[i].getName();
+                Object fieldValue = fields.get(paramName);
+                
+                if (fieldValue != null) {
+                    // Deserialize the field value to the expected parameter type
+                    args[i] = deserializeValueForConstructor(fieldValue, paramTypes[i], constructor.getParameters()[i]);
+                } else {
+                    // Use default value if field is not present
+                    args[i] = getDefaultValue(paramTypes[i]);
+                }
             }
 
             return constructor.newInstance(args);
         } catch (Exception e) {
             throw new SerializationException("Error creating instance with constructor", e);
         }
+    }
+
+    /**
+     * Deserializes a value for use in a constructor parameter.
+     * This method handles Maps, Collections, and primitive types appropriately.
+     */
+    private Object deserializeValueForConstructor(Object value, Class<?> targetType, Parameter parameter) throws SerializationException {
+        if (value == null) {
+            return getDefaultValue(targetType);
+        }
+
+        // Handle array types
+        if (targetType.isArray()) {
+            if (value instanceof List) {
+                return convertToArray(targetType, value);
+            }
+            return value;
+        }
+
+        // Handle Map types - create the appropriate Map implementation
+        if (Map.class.isAssignableFrom(targetType)) {
+            if (value instanceof Map) {
+                Map<String, Object> valueMap = (Map<String, Object>) value;
+                // Create a LinkedHashMap for the constructor parameter
+                Map<Object, Object> result = new LinkedHashMap<>();
+                
+                // Get the generic type from the parameter to find key and value types
+                Class<?> keyType = String.class; // default
+                Class<?> valueType = null; // unknown by default
+                java.lang.reflect.Type genericType = parameter.getParameterizedType();
+                if (genericType instanceof java.lang.reflect.ParameterizedType) {
+                    java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
+                    java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+                    if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
+                        keyType = (Class<?>) typeArgs[0];
+                    }
+                    if (typeArgs.length >= 2 && typeArgs[1] instanceof Class) {
+                        valueType = (Class<?>) typeArgs[1];
+                    }
+                }
+                
+                // Handle nested objects in map values
+                for (Map.Entry<String, Object> entry : valueMap.entrySet()) {
+                    // Convert the key to the appropriate type
+                    Object convertedKey = convertMapKey(entry.getKey(), keyType);
+                    
+                    // Deserialize the value based on its type
+                    Object mapValue = deserializeMapValue(entry.getValue(), valueType);
+                    
+                    result.put(convertedKey, mapValue);
+                }
+                return result;
+            }
+            return value;
+        }
+
+        // Handle Collection types
+        if (Collection.class.isAssignableFrom(targetType)) {
+            if (value instanceof List) {
+                Collection<Object> result = CollectionFactory.createCollection(targetType);
+                for (Object item : (List<?>) value) {
+                    if (item instanceof Map) {
+                        result.add(deserializeObject(item));
+                    } else {
+                        result.add(item);
+                    }
+                }
+                return result;
+            }
+            return value;
+        }
+
+        // Handle JDK classes that can be deserialized from a simple value
+        if (ValueSerializer.canSerializeAsValue(targetType)) {
+            Object deserialized = ValueSerializer.deserializeFromValue(value, targetType);
+            if (deserialized != null) {
+                return deserialized;
+            }
+        }
+
+        // Handle primitive and wrapper types
+        if (targetType == boolean.class || targetType == Boolean.class) {
+            return convertToBoolean(value);
+        } else if (targetType == byte.class || targetType == Byte.class) {
+            return convertToByte(value);
+        } else if (targetType == short.class || targetType == Short.class) {
+            return convertToShort(value);
+        } else if (targetType == int.class || targetType == Integer.class) {
+            return convertToInt(value);
+        } else if (targetType == long.class || targetType == Long.class) {
+            return convertToLong(value);
+        } else if (targetType == float.class || targetType == Float.class) {
+            return convertToFloat(value);
+        } else if (targetType == double.class || targetType == Double.class) {
+            return convertToDouble(value);
+        } else if (targetType == char.class || targetType == Character.class) {
+            return convertToChar(value);
+        } else if (targetType == String.class) {
+            return value.toString();
+        } else if (targetType == BigDecimal.class) {
+            if (value instanceof Number) {
+                return new BigDecimal(value.toString());
+            } else {
+                return new BigDecimal(value.toString());
+            }
+        } else if (targetType.isEnum()) {
+            return convertToEnum(targetType, value);
+        } else if (value instanceof Map) {
+            // Nested object
+            return deserializeObject(value);
+        }
+
+        return value;
     }
 
     /**
@@ -369,6 +531,37 @@ public class Deserializer<T> {
     private void setFieldValue(Object instance, Field field, Object value) throws IllegalAccessException, SerializationException {
         Class<?> fieldType = field.getType();
 
+        // Handle AtomicReference
+        if (fieldType == AtomicReference.class) {
+            Object refValue;
+            if (value instanceof Map) {
+                // Deserialize the nested object
+                refValue = deserializeObject(value);
+            } else {
+                refValue = value;
+            }
+            
+            // Get the generic type parameter from the field to determine the correct type
+            Class<?> genericType = null;
+            java.lang.reflect.Type genericFieldType = field.getGenericType();
+            if (genericFieldType instanceof java.lang.reflect.ParameterizedType) {
+                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericFieldType;
+                java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+                if (typeArgs.length > 0 && typeArgs[0] instanceof Class) {
+                    genericType = (Class<?>) typeArgs[0];
+                }
+            }
+            
+            // Convert the value to the expected generic type if known
+            Object convertedValue = refValue;
+            if (genericType != null && refValue != null) {
+                convertedValue = convertValueToType(refValue, genericType);
+            }
+            
+            field.set(instance, new AtomicReference<>(convertedValue));
+            return;
+        }
+
         if (value == null) {
             field.set(instance, null);
             return;
@@ -392,7 +585,25 @@ public class Deserializer<T> {
             } else {
                 refValue = value;
             }
-            field.set(instance, new AtomicReference<>(refValue));
+            
+            // Get the generic type parameter from the field to determine the correct type
+            Class<?> genericType = null;
+            java.lang.reflect.Type genericFieldType = field.getGenericType();
+            if (genericFieldType instanceof java.lang.reflect.ParameterizedType) {
+                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericFieldType;
+                java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+                if (typeArgs.length > 0 && typeArgs[0] instanceof Class) {
+                    genericType = (Class<?>) typeArgs[0];
+                }
+            }
+            
+            // Convert the value to the expected generic type if known
+            Object convertedValue = refValue;
+            if (genericType != null && refValue != null) {
+                convertedValue = convertValueToType(refValue, genericType);
+            }
+            
+            field.set(instance, new AtomicReference<>(convertedValue));
             return;
         }
 
@@ -506,6 +717,56 @@ public class Deserializer<T> {
             return value.toString();
         }
 
+        return value;
+    }
+
+    /**
+     * Converts a value to the specified type, with support for enums and other complex types.
+     * This method is used for converting values when the target type is known via reflection.
+     *
+     * @param value the value to convert
+     * @param targetType the target type to convert to
+     * @return the converted value
+     * @throws SerializationException if conversion fails
+     */
+    private Object convertValueToType(Object value, Class<?> targetType) throws SerializationException {
+        if (value == null) {
+            return null;
+        }
+
+        // Handle primitive and wrapper types
+        if (targetType == boolean.class || targetType == Boolean.class) {
+            return convertToBoolean(value);
+        } else if (targetType == byte.class || targetType == Byte.class) {
+            return convertToByte(value);
+        } else if (targetType == short.class || targetType == Short.class) {
+            return convertToShort(value);
+        } else if (targetType == int.class || targetType == Integer.class) {
+            return convertToInt(value);
+        } else if (targetType == long.class || targetType == Long.class) {
+            return convertToLong(value);
+        } else if (targetType == float.class || targetType == Float.class) {
+            return convertToFloat(value);
+        } else if (targetType == double.class || targetType == Double.class) {
+            return convertToDouble(value);
+        } else if (targetType == char.class || targetType == Character.class) {
+            return convertToChar(value);
+        } else if (targetType == String.class) {
+            return value.toString();
+        } else if (targetType == BigDecimal.class) {
+            if (value instanceof Number) {
+                return new BigDecimal(value.toString());
+            } else {
+                return new BigDecimal(value.toString());
+            }
+        } else if (targetType.isEnum()) {
+            return convertToEnum(targetType, value);
+        } else if (value instanceof Map) {
+            // Nested object - deserialize it
+            return deserializeObject(value);
+        }
+
+        // Return value as-is if no conversion needed
         return value;
     }
 
@@ -645,7 +906,9 @@ public class Deserializer<T> {
         if (!(value instanceof List)) return value;
 
         List<Object> list = (List<Object>) value;
-        List<Object> result = new ArrayList<>();
+        
+        // Create the appropriate collection type based on the field type
+        Collection<Object> result = CollectionFactory.createCollection(collectionType);
 
         for (Object item : list) {
             // If the item is a Map, it might be a nested object or reference
@@ -660,6 +923,106 @@ public class Deserializer<T> {
         return result;
     }
 
+    /**
+     * Converts a string key from JSON to the appropriate type for a Map.
+     * Handles primitive types, wrapper types, enums, and other common types.
+     * Uses ValueSerializer for complex types like UUID that can be constructed from a string.
+     *
+     * @param keyString string key from JSON
+     * @param keyType target type for the key
+     * @return the converted key
+     */
+    private Object convertMapKey(String keyString, Class<?> keyType) {
+        if (keyType == String.class) {
+            return keyString;
+        } else if (keyType == Long.class || keyType == long.class) {
+            return convertToLong(keyString);
+        } else if (keyType == Integer.class || keyType == int.class) {
+            return convertToInt(keyString);
+        } else if (keyType == Short.class || keyType == short.class) {
+            return convertToShort(keyString);
+        } else if (keyType == Byte.class || keyType == byte.class) {
+            return convertToByte(keyString);
+        } else if (keyType == Double.class || keyType == double.class) {
+            return convertToDouble(keyString);
+        } else if (keyType == Float.class || keyType == float.class) {
+            return convertToFloat(keyString);
+        } else if (keyType == Boolean.class || keyType == boolean.class) {
+            return convertToBoolean(keyString);
+        } else if (keyType == Character.class || keyType == char.class) {
+            return convertToChar(keyString);
+        } else if (keyType.isEnum()) {
+            return convertToEnum(keyType, keyString);
+        }
+        
+        // Try to use ValueSerializer for complex types like UUID, Date, etc.
+        // This handles JDK classes with fromString(String) or single-parameter constructors
+        Object converted = ValueSerializer.deserializeFromValue(keyString, keyType);
+        if (converted != null) {
+            return converted;
+        }
+        
+        // Default to string for unknown types
+        return keyString;
+    }
+
+    /**
+     * Deserializes a map value based on its expected type.
+     *
+     * @param mapValue value from the parsed map
+     * @param valueType expected value type (may be null)
+     * @return the deserialized value
+     * @throws SerializationException if deserialization fails
+     */
+    private Object deserializeMapValue(Object mapValue, Class<?> valueType) throws SerializationException {
+        if (mapValue == null) {
+            return null;
+        }
+        
+        if (mapValue instanceof Map) {
+            Map<String, Object> valueMap = (Map<String, Object>) mapValue;
+            // Check if this is an object definition with $id and $class
+            if (valueMap.containsKey("$id") && valueMap.containsKey("$class")) {
+                return deserializeObject(mapValue);
+            }
+            // Otherwise, it's a nested map - return as-is for now
+            return mapValue;
+        } else if (mapValue instanceof List) {
+            // List values may contain nested objects - deserialize each element
+            List<Object> deserializedList = new ArrayList<>();
+            for (Object item : (List<?>) mapValue) {
+                if (item instanceof Map) {
+                    Map<String, Object> itemMap = (Map<String, Object>) item;
+                    if (itemMap.containsKey("$id") && itemMap.containsKey("$class")) {
+                        deserializedList.add(deserializeObject(item));
+                    } else {
+                        deserializedList.add(item);
+                    }
+                } else {
+                    deserializedList.add(item);
+                }
+            }
+            return deserializedList;
+        }
+        
+        // For primitive types, try to convert if valueType is known
+        if (valueType != null) {
+            if (valueType == Long.class || valueType == long.class) {
+                return convertToLong(mapValue);
+            } else if (valueType == Integer.class || valueType == int.class) {
+                return convertToInt(mapValue);
+            } else if (valueType == Double.class || valueType == double.class) {
+                return convertToDouble(mapValue);
+            } else if (valueType == Float.class || valueType == float.class) {
+                return convertToFloat(mapValue);
+            } else if (valueType == Boolean.class || valueType == boolean.class) {
+                return convertToBoolean(mapValue);
+            }
+        }
+        
+        return mapValue;
+    }
+
     @SuppressWarnings("unchecked")
     private Object convertToMap(Field field, Object value) throws SerializationException {
         if (value == null) return null;
@@ -667,12 +1030,11 @@ public class Deserializer<T> {
 
         Map<String, Object> parsedMap = (Map<String, Object>) value;
         
-        // Check if the map type has a generic parameter for the key
-        // We need to determine the key type to handle enum keys
         try {
-            // Get the generic type from the field to find the key type
+            // Get the generic type from the field to find key and value types
             java.lang.reflect.Type genericType = field.getGenericType();
             Class<?> keyType = String.class; // default
+            Class<?> valueType = null; // unknown by default
             
             if (genericType instanceof java.lang.reflect.ParameterizedType) {
                 java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
@@ -680,43 +1042,21 @@ public class Deserializer<T> {
                 if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
                     keyType = (Class<?>) typeArgs[0];
                 }
-            }
-            
-            // If key type is an enum, we need to convert string keys to enum values
-            if (keyType.isEnum()) {
-                Map<Object, Object> result = new LinkedHashMap<>();
-                for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
-                    Object enumKey = convertToEnum(keyType, entry.getKey());
-                    // Deserialize the value if it's a nested object
-                    Object mapValue = entry.getValue();
-                    if (mapValue instanceof Map) {
-                        mapValue = deserializeObject(mapValue);
-                    }
-                    result.put(enumKey, mapValue);
+                if (typeArgs.length >= 2 && typeArgs[1] instanceof Class) {
+                    valueType = (Class<?>) typeArgs[1];
                 }
-                return result;
             }
             
-            // For non-enum key maps, also deserialize nested objects in values
+            // Create the result map with appropriate key types
             Map<Object, Object> result = new LinkedHashMap<>();
             for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
-                // Deserialize the value if it's a nested object or collection
-                Object mapValue = entry.getValue();
-                if (mapValue instanceof Map) {
-                    mapValue = deserializeObject(mapValue);
-                } else if (mapValue instanceof List) {
-                    // List values may contain nested objects - deserialize each element
-                    List<Object> deserializedList = new ArrayList<>();
-                    for (Object item : (List<?>) mapValue) {
-                        if (item instanceof Map) {
-                            deserializedList.add(deserializeObject(item));
-                        } else {
-                            deserializedList.add(item);
-                        }
-                    }
-                    mapValue = deserializedList;
-                }
-                result.put(entry.getKey(), mapValue);
+                // Convert the key to the appropriate type
+                Object convertedKey = convertMapKey(entry.getKey(), keyType);
+                
+                // Deserialize the value based on its type
+                Object mapValue = deserializeMapValue(entry.getValue(), valueType);
+                
+                result.put(convertedKey, mapValue);
             }
             return result;
         } catch (Exception e) {

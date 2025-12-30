@@ -3,7 +3,9 @@ package com.pjr22.serialization.util;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
+import java.util.Collection;
 import java.util.Date;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -33,6 +35,18 @@ public class ValueSerializer {
 
         // Exclude String - it's already handled by JsonSerializer
         if (clazz == String.class) {
+            return false;
+        }
+
+        // Exclude Collection types - they should be serialized as JSON arrays, not as simple values
+        // This prevents ArrayList, HashSet, etc. from being incorrectly serialized as Strings
+        if (Collection.class.isAssignableFrom(clazz)) {
+            return false;
+        }
+
+        // Exclude Map types - they should be serialized as JSON objects, not as simple values
+        // This prevents LinkedHashMap, HashMap, etc. from being incorrectly serialized as Strings
+        if (Map.class.isAssignableFrom(clazz)) {
             return false;
         }
 

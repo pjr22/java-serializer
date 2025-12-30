@@ -204,6 +204,95 @@ The deserializer supports two JSON formats:
    }
    ```
 
+#### Map Key Type Conversion
+
+The deserializer automatically converts JSON string keys to the appropriate types based on the map's generic type parameters. This enables proper deserialization of maps with non-String keys.
+
+**Supported Key Types:**
+- Primitive types: `long`, `int`, `short`, `byte`, `double`, `float`, `boolean`, `char`
+- Wrapper types: `Long`, `Integer`, `Short`, `Byte`, `Double`, `Float`, `Boolean`, `Character`
+- `String` (no conversion needed)
+- `Enum` types (converted via `name()` and reflection)
+- JDK complex types: `UUID`, `Date`, and other types with `fromString(String)` method or single-parameter constructor
+
+**Example:**
+```java
+// Class with Map<Long, String> field
+public class PersonWithLongKeyMap {
+    private final Map<Long, String> longKeyMap;
+    
+    public PersonWithLongKeyMap(Map<Long, String> longKeyMap) {
+        this.longKeyMap = new LinkedHashMap<>(longKeyMap);
+    }
+    
+    public Map<Long, String> getLongKeyMap() {
+        return longKeyMap;
+    }
+}
+
+// Serialization
+Map<Long, String> originalMap = new LinkedHashMap<>();
+originalMap.put(1001L, "Room 1001");
+originalMap.put(1002L, "Room 1002");
+PersonWithLongKeyMap original = new PersonWithLongKeyMap(originalMap);
+
+Serializer serializer = new Serializer("test", 0);
+ByteArrayOutputStream out = new ByteArrayOutputStream();
+serializer.serialize(original, out);
+
+// Deserialization - keys are automatically converted to Long type
+Deserializer<PersonWithLongKeyMap> deserializer = new Deserializer<>(PersonWithLongKeyMap.class);
+ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+PersonWithLongKeyMap deserialized = deserializer.deserialize(in);
+
+// Keys are Long type, not String
+for (Map.Entry<Long, String> entry : deserialized.getLongKeyMap().entrySet()) {
+    System.out.println(entry.getKey() instanceof Long); // true
+}
+```
+
+**Note:** The deserializer uses reflection to extract generic type information from the field's `ParameterizedType`. If the type cannot be determined, keys will remain as strings.
+
+#### Parameterized Type Deserialization
+
+The deserializer supports proper deserialization of parameterized types, particularly `AtomicReference<T>`. When deserializing fields with parameterized types, the deserializer:
+
+1. Extracts the generic type parameter from the field's `ParameterizedType` using reflection
+2. Converts the JSON value to the appropriate target type before creating the container object
+
+This ensures that `AtomicReference<CombatStance>` correctly deserializes a string value like `"BALANCED"` to the `CombatStance` enum, rather than creating an `AtomicReference<String>`.
+
+**Supported Parameterized Types:**
+- `AtomicReference<T>` - The referenced value is converted to the type parameter `T`
+
+**Example:**
+```java
+// Class with AtomicReference<CombatStance> field
+public class PlayerCharacter {
+    private AtomicReference<CombatStance> combatStance =
+        new AtomicReference<>(CombatStance.BALANCED);
+}
+
+// Serialization - enum value is serialized as string
+PlayerCharacter original = new PlayerCharacter();
+Serializer serializer = new Serializer("game", 0);
+ByteArrayOutputStream out = new ByteArrayOutputStream();
+serializer.serialize(original, out);
+// JSON contains: "combatStance": "BALANCED"
+
+// Deserialization - string is converted to CombatStance enum
+Deserializer<PlayerCharacter> deserializer = new Deserializer<>(PlayerCharacter.class);
+ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+PlayerCharacter deserialized = deserializer.deserialize(in);
+
+// combatStance.get() returns CombatStance enum, not String
+CombatStance stance = deserialized.getCombatStance().get();
+System.out.println(stance instanceof CombatStance); // true
+System.out.println(stance == CombatStance.BALANCED); // true
+```
+
+**Note:** This feature also handles null values correctly - when a field value is null, the deserializer creates an `AtomicReference` with a null value rather than setting the field to null.
+
 ---
 
 ### SerializationException
@@ -301,6 +390,7 @@ Represents the category of a field for serialization.
 - `ATOMIC_BOOLEAN` - java.util.concurrent.atomic.AtomicBoolean
 - `ATOMIC_INTEGER` - java.util.concurrent.atomic.AtomicInteger
 - `ATOMIC_LONG` - java.util.concurrent.atomic.AtomicLong
+- `ATOMIC_REFERENCE` - java.util.concurrent.atomic.AtomicReference<T> (supports parameterized types)
 - `COLLECTION` - List, Set, etc.
 - `MAP` - Map implementations
 - `ARRAY` - Arrays
@@ -365,9 +455,11 @@ Constructor<?> constructor = ConstructorAnalyzer.selectBestConstructor(SimplePer
 
 **Selection Algorithm:**
 1. If no field names provided, prefer default constructor
-2. Find constructor with most matching parameter names
+2. Find constructor with most matching parameter names (considers all visibility levels)
 3. If multiple constructors have same match count, prefer one with more parameters
 4. Choose first available in case of tie
+
+**Note:** This method considers all constructors regardless of visibility (public, protected, package-private, private). The deserializer will make non-public constructors accessible via reflection.
 
 ##### `static int countMatchingParameterNames(Constructor<?> constructor, Set<String> fieldNames)`
 
@@ -809,6 +901,120 @@ Random random = ValueSerializer.deserializeFromValue(seed, Random.class);
 All Number types are considered compatible for type conversion:
 - Integer ↔ Long ↔ Double ↔ Float ↔ Short ↔ Byte
 - BigDecimal ↔ Any Number type
+
+## Class Requirements for Deserialization
+
+### Constructor Requirements
+
+For a class to be successfully deserialized, it must have a suitable constructor. The deserializer follows this priority order:
+
+1. **Default (no-arg) constructor** - Preferred as it's the safest option
+2. **Constructor with matching parameter names** - Parameters that match field names in the serialized data will receive the actual values
+3. **Constructor with primitive/wrapper parameters** - If no matching fields, the constructor must only use primitive types or their wrappers (which have safe default values like 0, false, null)
+
+**Example of a deserializable class:**
+```java
+public class Person {
+    private String name;
+    private int age;
+    
+    // Default constructor - preferred
+    public Person() {
+    }
+    
+    // OR: Constructor with matching parameters
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+```
+
+**Example of a non-deserializable class:**
+```java
+public class Config {
+    private Map<String, String> settings;
+    
+    // This constructor requires a non-null args parameter
+    // and the parameter name doesn't match any field
+    public Config(String[] args) {
+        // This will fail deserialization because:
+        // 1. No default constructor
+        // 2. String[] parameter cannot be safely initialized with a default value
+        // 3. Parameter name "args" doesn't match any field
+        if (args != null) {
+            // ...
+        }
+    }
+}
+```
+
+### Final Fields Limitation
+
+**Classes with `final` fields that are initialized inline cannot be deserialized.** This is a Java language limitation - final fields cannot be modified after object construction, even with reflection in modern Java versions.
+
+**Problematic pattern:**
+```java
+public class Config {
+    // These final fields are initialized inline
+    public final Map<String, String> client = new TreeMap<>();
+    public final Map<String, Integer> game = new TreeMap<>();
+    
+    public Config() {
+        setDefaults();
+    }
+}
+```
+
+**Solution 1: Make fields non-final**
+```java
+public class Config {
+    // Remove final modifier
+    public Map<String, String> client = new TreeMap<>();
+    public Map<String, Integer> game = new TreeMap<>();
+    
+    public Config() {
+        setDefaults();
+    }
+}
+```
+
+**Solution 2: Use constructor injection**
+```java
+public class Config {
+    private final Map<String, String> client;
+    private final Map<String, Integer> game;
+    
+    // Constructor that accepts the map values
+    public Config(Map<String, String> client, Map<String, Integer> game) {
+        this.client = client != null ? client : new TreeMap<>();
+        this.game = game != null ? game : new TreeMap<>();
+    }
+}
+```
+
+### Parameter Name Preservation
+
+For constructor parameter matching to work correctly, compile your code with the `-parameters` flag:
+
+```bash
+javac -parameters YourClass.java
+```
+
+Without this flag, parameter names are not preserved in the bytecode, and the deserializer cannot match them to field names.
+
+### Summary of Requirements
+
+For a class to be deserializable:
+
+1. ✅ Have a default (no-arg) constructor, OR
+2. ✅ Have a constructor with parameters that match field names, OR
+3. ✅ Have a constructor with only primitive/wrapper parameters (which can use default values)
+
+4. ❌ Avoid `final` fields initialized inline, OR
+5. ✅ Provide a constructor that accepts all final field values
+
+6. ✅ Compile with `-parameters` flag for constructor parameter matching
 
 ---
 

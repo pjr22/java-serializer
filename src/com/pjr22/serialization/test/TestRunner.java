@@ -24,6 +24,9 @@ public class TestRunner {
         runTest("SerializerTest", SerializerTest::new);
         runTest("DeserializerTest", DeserializerTest::new);
         runTest("IntegrationTest", IntegrationTest::new);
+        runTest("CollectionDeserializationTest", CollectionDeserializationTest::new);
+        runTest("MapKeyTypeDeserializationTest", MapKeyTypeDeserializationTest::new);
+        runTest("AtomicReferenceDeserializationTest", AtomicReferenceDeserializationTest::new);
 
         System.out.println();
         System.out.println("========================================");

@@ -284,6 +284,30 @@ Registry for storing objects during deserialization.
 
 ### Utility Classes
 
+#### [`CollectionFactory`](src/com/pjr22/serialization/util/CollectionFactory.java)
+Factory for creating appropriate collection instances based on target field type.
+
+- `static <T> Collection<T> createCollection(Class<?> fieldType)` - Creates a collection instance appropriate for the specified field type
+
+**Supported Collection Types:**
+| Field Type | Implementation |
+|-------------|----------------|
+| `java.util.List` | `ArrayList` |
+| `java.util.Set` | `LinkedHashSet` |
+| `java.util.SortedSet` / `java.util.NavigableSet` | `TreeSet` |
+| `java.util.Queue` | `LinkedList` |
+| `java.util.Deque` | `ArrayDeque` |
+| `java.util.concurrent.BlockingQueue` | `LinkedBlockingQueue` |
+| `java.util.concurrent.BlockingDeque` | `LinkedBlockingDeque` |
+| `java.util.concurrent.TransferQueue` | `LinkedBlockingQueue` |
+| `ArrayList` | `ArrayList` (via no-arg constructor) |
+| `LinkedList` | `LinkedList` (via no-arg constructor) |
+| `HashSet` | `HashSet` (via no-arg constructor) |
+| `LinkedHashSet` | `LinkedHashSet` (via no-arg constructor) |
+| `TreeSet` | `TreeSet` (via no-arg constructor) |
+| `PriorityQueue` | `PriorityQueue` (via no-arg constructor) |
+| `ArrayDeque` | `ArrayDeque` (via no-arg constructor) |
+
 #### [`ValueSerializer`](src/com/pjr22/serialization/util/ValueSerializer.java)
 Utility class for serializing and deserializing JDK classes that can be constructed with a single value (String or Number).
 
@@ -343,10 +367,13 @@ The following fields are automatically excluded:
 ### Constructor Selection
 
 The deserializer uses [`ConstructorAnalyzer`](src/com/pjr22/serialization/inspector/ConstructorAnalyzer.java) to select the best constructor:
-1. Prefers constructors with more parameters
-2. Matches parameter names to field names
-3. Handles type conversions (e.g., int to long)
-4. Falls back to default constructor and setters if needed
+1. Supports all constructor visibility levels (public, protected, package-private, private)
+2. Prefers constructors with more parameters
+3. Matches parameter names to field names
+4. Handles type conversions (e.g., int to long)
+5. Falls back to default constructor and setters if needed
+
+**Note:** Non-public constructors are made accessible via reflection during deserialization, allowing the library to work with classes that use protected or private constructors (e.g., builder pattern classes).
 
 ## Testing
 
@@ -392,3 +419,45 @@ Contributions are welcome! Please ensure all tests pass before submitting change
 # Run tests
 java -cp bin com.pjr22.serialization.test.TestRunner
 ```
+
+## Recent Fixes
+
+### Map Key Type Deserialization (2025-12-30)
+
+**Issue**: When deserializing objects with Map fields where the key type is not String (e.g., `Map<UUID, Quest>`), the deserializer was not converting JSON string keys to the appropriate Java type. Since JSON map keys are always strings, map keys like UUID were being deserialized as String objects instead of UUID, causing type mismatches and lookup failures.
+
+**Root Cause**: The `convertMapKey()` method in [`Deserializer.java`](src/com/pjr22/serialization/core/Deserializer.java) only handled primitive types, wrapper types, and enums. It did not handle complex JDK types like UUID that can be constructed from a string via `fromString()` method or single-parameter constructor.
+
+**Fix**:
+1. Modified `convertMapKey()` method to use [`ValueSerializer.deserializeFromValue()`](src/com/pjr22/serialization/util/ValueSerializer.java) for any type that can be deserialized from a string
+2. This provides a generalized solution that works for UUID, Date, and any other JDK type with `fromString(String)` method or single-parameter constructor
+3. Added test case `testUUIDKeyMapDeserialization()` in [`MapKeyTypeDeserializationTest.java`](src/com/pjr22/serialization/test/MapKeyTypeDeserializationTest.java) to verify UUID keys are properly deserialized
+
+**Impact**: Map keys of complex types (UUID, Date, etc.) are now correctly deserialized as their proper types, enabling correct type checking and map lookups.
+
+### Constructor Parameter Value Deserialization (2025-12-29)
+
+**Issue**: When deserializing objects with parameterized constructors that create new Map/Collection instances from parameters (e.g., `new TreeMap<>(map)`), the deserializer was passing `null` values to the constructor, causing `NullPointerException`.
+
+**Root Cause**: The `createWithConstructor` method was using default values (null for objects) for all constructor parameters instead of deserializing the actual field values from the JSON data.
+
+**Fix**:
+1. Modified `createInstance` to accept the full `fields` map instead of just field names
+2. Added `deserializeValueForConstructor` method that properly deserializes field values to expected parameter types (including Map, Collection, Array, and primitive types)
+3. Updated `build.sh` to include `-parameters` javac flag to preserve parameter names in compiled bytecode
+
+**Impact**: Classes with constructors that expect non-null Map/Collection parameters (like the `Config` class in the issue report) can now be deserialized correctly.
+
+### Map Values Containing Nested Objects (2025-12-30)
+
+**Issue**: When deserializing objects with Map fields where values contain nested objects (e.g., `Map<String, NaturalInventoryContainer>`), the `ValueSerializer.canSerializeAsValue()` was incorrectly treating `LinkedHashMap` as a simple value type. This caused Map values to be serialized as string representations (via `toString()`) instead of proper nested object structures, which could not be deserialized back to the original objects.
+
+**Root Cause**: The `ValueSerializer.canSerializeAsValue()` method was checking for JDK classes with `fromString()` methods or single-parameter constructors but did not exclude Map types. Since `LinkedHashMap` is a JDK class with a Map constructor, it was being serialized as a simple value using `toString()`, producing output like `{$id=test_10, $class=org.pjr22.adv.items.NaturalInventoryContainer, ...}`. During deserialization, this string could not be converted back to a proper `LinkedHashMap`, causing the map values to be lost.
+
+**Fix**:
+1. Added import for `java.util.Map` in [`ValueSerializer.java`](src/com/pjr22/serialization/util/ValueSerializer.java)
+2. Added exclusion check for Map types in `canSerializeAsValue()` method, similar to the existing Collection exclusion
+3. Added test case `testDeserializeMapWithNestedObjectValues()` in [`DeserializerTest.java`](src/com/pjr22/serialization/test/DeserializerTest.java) to verify Map values containing nested objects are properly serialized and deserialized
+4. Created test data class [`PersonWithMapOfPeople.java`](src/com/pjr22/serialization/test/data/PersonWithMapOfPeople.java) for testing
+
+**Impact**: Map values containing nested objects are now correctly serialized as JSON objects (not strings), ensuring proper round-trip serialization and deserialization.

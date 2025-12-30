@@ -31,7 +31,7 @@ public class ConstructorAnalyzer {
             return null;
         }
 
-        Constructor<?>[] constructors = clazz.getConstructors();
+        Constructor<?>[] constructors = clazz.getDeclaredConstructors();
         if (constructors.length == 0) {
             return null;
         }

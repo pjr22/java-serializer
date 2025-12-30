@@ -8,8 +8,8 @@ echo "Building Java Serializer/Deserializer library..."
 # Create bin directory if it doesn't exist
 mkdir -p bin
 
-# Compile all source files
-javac -d bin -sourcepath src src/com/pjr22/serialization/**/*.java
+# Compile all source files with -parameters flag to preserve parameter names
+javac -Xlint:deprecation --release 17 -parameters -g -d bin -sourcepath src src/com/pjr22/serialization/**/*.java
 
 # Check if compilation was successful
 if [ $? -eq 0 ]; then

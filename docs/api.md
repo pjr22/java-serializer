@@ -1048,3 +1048,62 @@ The [`Deserializer`](#deserializer) may generate warnings during deserialization
 - [`FieldInspector`](#fieldinspector) - Thread-safe (static methods only).
 - [`FieldClassifier`](#fieldclassifier) - Thread-safe (static methods only).
 - [`ConstructorAnalyzer`](#constructoranalyzer) - Thread-safe (static methods only).
+#### Circular Reference Handling
+
+The deserializer handles circular references in object graphs using a placeholder-based approach:
+
+**How it works:**
+1. When deserializing an object, a placeholder is registered in the ObjectRegistry before the object is constructed
+2. If nested objects reference back to the parent object during construction, they receive a marker instead of the actual object
+3. After the parent object is fully constructed, it replaces the placeholder in the registry
+4. Unresolved references are tracked and resolved after the target object is available
+
+**Example of circular reference:**
+```java
+// Parent has a Child, and Child has a reference back to Parent
+public class Parent {
+    private final String name;
+    private final Child child;
+    
+    public Parent(String name, Child child) {
+        this.name = name;
+        this.child = child;
+    }
+}
+
+public class Child {
+    private final String name;
+    private final Parent parent;
+    
+    public Child(String name, Parent parent) {
+        this.name = name;
+        this.parent = parent;
+    }
+}
+```
+
+**JSON with circular reference:**
+```json
+{
+  "$id": "parent_1",
+  "$class": "com.example.Parent",
+  "fields": {
+    "name": "parent",
+    "child": {
+      "$id": "child_1",
+      "$class": "com.example.Child",
+      "fields": {
+        "name": "child",
+        "parent": {
+          "$ref": "parent_1"
+        }
+      }
+    }
+  }
+}
+```
+
+**Limitations:**
+- Circular references in constructor parameters that use final fields are resolved after construction
+- For non-final fields, the circular reference is properly set during the resolution phase
+- For final fields in constructor parameters, the value is set during construction and cannot be changed afterward

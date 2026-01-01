@@ -27,6 +27,7 @@ public class TestRunner {
         runTest("CollectionDeserializationTest", CollectionDeserializationTest::new);
         runTest("MapKeyTypeDeserializationTest", MapKeyTypeDeserializationTest::new);
         runTest("AtomicReferenceDeserializationTest", AtomicReferenceDeserializationTest::new);
+        runTest("CircularReferenceConstructorTest", CircularReferenceConstructorTest::new);
 
         System.out.println();
         System.out.println("========================================");

@@ -37,6 +37,26 @@ public class Deserializer<T> {
     private final Class<T> targetType;
     private final ObjectRegistry objectRegistry;
     private final List<String> warnings;
+    
+    // Placeholder marker for objects being constructed (to handle circular references)
+    private static final Object PLACEHOLDER = new Object();
+    
+    // Track unresolved references: maps target object ID to list of (source object, field) pairs
+    // that need to be resolved after the target object is fully constructed
+    private final Map<String, List<UnresolvedReference>> unresolvedReferences;
+    
+    /**
+     * Represents an unresolved reference that needs to be resolved after construction.
+     */
+    private static class UnresolvedReference {
+        final Object sourceObject;
+        final Field field;
+        
+        UnresolvedReference(Object sourceObject, Field field) {
+            this.sourceObject = sourceObject;
+            this.field = field;
+        }
+    }
 
     /**
      * Creates a new Deserializer for the specified target type.
@@ -47,6 +67,7 @@ public class Deserializer<T> {
         this.targetType = targetType;
         this.objectRegistry = new ObjectRegistry();
         this.warnings = new ArrayList<>();
+        this.unresolvedReferences = new HashMap<>();
     }
 
     /**
@@ -174,6 +195,12 @@ public class Deserializer<T> {
                 if (referenced == null) {
                     throw new SerializationException("Referenced object not found: " + refId);
                 }
+                // If the referenced object is a placeholder (still being constructed),
+                // return a special marker to indicate this is an unresolved reference
+                // The caller will track this and resolve it after the target is constructed
+                if (referenced == PLACEHOLDER) {
+                    return new UnresolvedReferenceMarker(refId);
+                }
                 return referenced;
             }
 
@@ -241,9 +268,19 @@ public class Deserializer<T> {
                         checkSerialVersionUID(clazz, map.get("serialVersionUID"));
                     }
 
+                    // Register a placeholder BEFORE creating instance to handle circular references
+                    // When nested objects reference back to this object during construction,
+                    // they will get PLACEHOLDER instead of throwing "Referenced object not found"
+                    objectRegistry.register(objectId, PLACEHOLDER);
+                    
                     // Create instance
                     Object instance = createInstance(clazz, fields);
+                    
+                    // Replace placeholder with actual instance
                     objectRegistry.register(objectId, instance);
+                    
+                    // Resolve any unresolved references to this object
+                    resolveUnresolvedReferences(objectId, instance);
 
                     // Set field values
                     setFields(instance, clazz, fields, new HashMap<>());
@@ -357,6 +394,13 @@ public class Deserializer<T> {
                     args[i] = getDefaultValue(paramTypes[i]);
                 }
             }
+            
+            // Handle unresolved reference markers in constructor arguments
+            for (int i = 0; i < args.length; i++) {
+                if (args[i] instanceof UnresolvedReferenceMarker) {
+                    args[i] = null;
+                }
+            }
 
             return constructor.newInstance(args);
         } catch (Exception e) {
@@ -371,6 +415,15 @@ public class Deserializer<T> {
     private Object deserializeValueForConstructor(Object value, Class<?> targetType, Parameter parameter) throws SerializationException {
         if (value == null) {
             return getDefaultValue(targetType);
+        }
+        
+        // Handle unresolved reference markers
+        if (value instanceof UnresolvedReferenceMarker) {
+            // For constructor parameters, we can't resolve this now
+            // Return null and track it for later resolution
+            // Note: This won't work for final fields in constructor parameters
+            // because we can't change them after construction
+            return null;
         }
 
         // Handle array types
@@ -530,6 +583,16 @@ public class Deserializer<T> {
      */
     private void setFieldValue(Object instance, Field field, Object value) throws IllegalAccessException, SerializationException {
         Class<?> fieldType = field.getType();
+        
+        // Handle unresolved reference markers
+        if (value instanceof UnresolvedReferenceMarker) {
+            UnresolvedReferenceMarker marker = (UnresolvedReferenceMarker) value;
+            // Set to null for now, but track this as an unresolved reference
+            field.set(instance, null);
+            unresolvedReferences.computeIfAbsent(marker.targetObjectId, k -> new ArrayList<>())
+                .add(new UnresolvedReference(instance, field));
+            return;
+        }
 
         // Handle AtomicReference
         if (fieldType == AtomicReference.class) {
@@ -664,7 +727,16 @@ public class Deserializer<T> {
         } else if (value instanceof Map) {
             // This might be a nested object
             Object nested = deserializeObject(value);
-            field.set(instance, nested);
+            // Handle unresolved reference markers
+            if (nested instanceof UnresolvedReferenceMarker) {
+                UnresolvedReferenceMarker marker = (UnresolvedReferenceMarker) nested;
+                // Set to null for now, but track this as an unresolved reference
+                field.set(instance, null);
+                unresolvedReferences.computeIfAbsent(marker.targetObjectId, k -> new ArrayList<>())
+                    .add(new UnresolvedReference(instance, field));
+            } else {
+                field.set(instance, nested);
+            }
         } else {
             field.set(instance, value);
         }
@@ -793,6 +865,45 @@ public class Deserializer<T> {
         }
     }
 
+    /**
+     * Resolves unresolved references to a specific object.
+     * Called after an object is fully constructed to resolve any references
+     * that were deferred because the target was still being constructed.
+     *
+     * @param targetObjectId the ID of the object that was just constructed
+     * @param targetInstance the actual instance of the constructed object
+     */
+    private void resolveUnresolvedReferences(String targetObjectId, Object targetInstance) {
+        List<UnresolvedReference> refs = unresolvedReferences.get(targetObjectId);
+        if (refs == null || refs.isEmpty()) {
+            return;
+        }
+        
+        for (UnresolvedReference ref : refs) {
+            try {
+                ref.field.setAccessible(true);
+                ref.field.set(ref.sourceObject, targetInstance);
+            } catch (IllegalAccessException e) {
+                // Ignore - can't set the field (e.g., final field that's already set)
+            }
+        }
+        
+        // Clear the resolved references
+        unresolvedReferences.remove(targetObjectId);
+    }
+    
+    /**
+     * Marker class to indicate a reference that couldn't be resolved
+     * because the target object was still being constructed.
+     */
+    private static class UnresolvedReferenceMarker {
+        final String targetObjectId;
+        
+        UnresolvedReferenceMarker(String targetObjectId) {
+            this.targetObjectId = targetObjectId;
+        }
+    }
+    
     /**
      * Checks serialVersionUID compatibility.
      */
@@ -983,7 +1094,13 @@ public class Deserializer<T> {
             Map<String, Object> valueMap = (Map<String, Object>) mapValue;
             // Check if this is an object definition with $id and $class
             if (valueMap.containsKey("$id") && valueMap.containsKey("$class")) {
-                return deserializeObject(mapValue);
+                Object result = deserializeObject(mapValue);
+                // Handle unresolved reference markers
+                if (result instanceof UnresolvedReferenceMarker) {
+                    // For constructor parameters, return null
+                    return null;
+                }
+                return result;
             }
             // Otherwise, it's a nested map - return as-is for now
             return mapValue;

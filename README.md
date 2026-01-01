@@ -461,3 +461,50 @@ java -cp bin com.pjr22.serialization.test.TestRunner
 4. Created test data class [`PersonWithMapOfPeople.java`](src/com/pjr22/serialization/test/data/PersonWithMapOfPeople.java) for testing
 
 **Impact**: Map values containing nested objects are now correctly serialized as JSON objects (not strings), ensuring proper round-trip serialization and deserialization.
+
+### Circular Reference Constructor Handling (2026-01-01)
+
+**Issue**: When deserializing objects with circular references through constructor parameters (e.g., immutable classes with final fields), the deserializer would throw a "Referenced object not found" exception. This occurred because when constructing a child object that references a parent object still being constructed, the parent's object ID was not yet registered in the ObjectRegistry.
+
+**Root Cause**: The deserializer registered objects in the ObjectRegistry only after they were fully constructed. When a nested object's constructor parameter referenced back to the parent object, the reference could not be resolved because the parent was not yet registered.
+
+**Fix**:
+1. Added placeholder-based circular reference handling in [`Deserializer.java`](src/com/pjr22/serialization/core/Deserializer.java)
+2. Register a placeholder object in the ObjectRegistry BEFORE creating the instance
+3. Track unresolved references using `UnresolvedReferenceMarker` and `UnresolvedReference` classes
+4. After an object is fully constructed, resolve all pending references to it via `resolveUnresolvedReferences()` method
+5. For constructor parameters, unresolved references are set to null (since final fields cannot be modified after construction)
+6. For non-final fields, unresolved references are properly set after the target object is available
+
+**Impact**: Objects with circular references through constructor parameters can now be deserialized successfully. Non-final fields with circular references are properly resolved. Final fields in constructor parameters receive null values (a limitation of Java's final field semantics).
+
+**Example**:
+```java
+// Parent has a Child, and Child has a reference back to Parent
+public class Parent {
+    private final String name;
+    private final Child child;
+    
+    public Parent(String name, Child child) {
+        this.name = name;
+        this.child = child;
+    }
+}
+
+public class Child {
+    private final String name;
+    private final Parent parent;
+    
+    public Child(String name, Parent parent) {
+        this.name = name;
+        this.parent = parent;
+    }
+}
+```
+
+During deserialization:
+1. A placeholder is registered for `parent_1`
+2. The `Child` is constructed with `parent` set to null (unresolved)
+3. The `Parent` is constructed with the `Child`
+4. The placeholder is replaced with the actual `Parent` instance
+5. If `parent` in `Child` were non-final, it would be resolved now

@@ -19,6 +19,7 @@ This document provides comprehensive usage examples for the Java Serializer/Dese
   - [Working with Arrays](#working-with-arrays)
   - [Object References](#object-references)
   - [Circular References](#circular-references)
+    - [Circular References with Constructor-Based Deserialization](#circular-references-with-constructor-based-deserialization)
   - [Inheritance](#inheritance)
   - [Immutable Objects](#immutable-objects)
   - [Non-Public Constructors](#non-public-constructors)
@@ -838,6 +839,70 @@ assert result.getChildren().size() == 2;
 assert result.getChildren().get(0).getParent() == result; // Same object reference
 assert result.getChildren().get(1).getParent() == result; // Same object reference
 ```
+
+### Circular References with Constructor-Based Deserialization
+
+The library also handles circular references in immutable objects that use constructor injection with final fields. In this case, the deserializer uses a placeholder-based approach:
+
+```java
+// Parent has a Child, and Child has a reference back to Parent
+// Both use final fields and constructor injection
+public class Parent {
+    private final String name;
+    private final Child child;
+    
+    public Parent(String name, Child child) {
+        this.name = name;
+        this.child = child;
+    }
+    
+    public String getName() { return name; }
+    public Child getChild() { return child; }
+}
+
+public class Child {
+    private final String name;
+    private final Parent parent;
+    
+    public Child(String name, Parent parent) {
+        this.name = name;
+        this.parent = parent;
+    }
+    
+    public String getName() { return name; }
+    public Parent getParent() { return parent; }
+}
+```
+
+**JSON with circular reference:**
+```json
+{
+  "$id": "parent_1",
+  "$class": "com.example.Parent",
+  "fields": {
+    "name": "parent",
+    "child": {
+      "$id": "child_1",
+      "$class": "com.example.Child",
+      "fields": {
+        "name": "child",
+        "parent": {
+          "$ref": "parent_1"
+        }
+      }
+    }
+  }
+}
+```
+
+**How it works:**
+1. A placeholder is registered for `parent_1` before the Parent object is constructed
+2. The Child is constructed with `parent` set to null (because the Parent doesn't exist yet)
+3. The Parent is constructed with the Child
+4. The placeholder is replaced with the actual Parent instance
+5. If `parent` in Child were a non-final field, it would be resolved now
+
+**Note:** For final fields in constructor parameters, circular references are set to null during construction and cannot be changed afterward (a limitation of Java's final field semantics). For non-final fields, circular references are properly resolved after the target object is available.
 
 ---
 

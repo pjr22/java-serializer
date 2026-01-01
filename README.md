@@ -422,6 +422,32 @@ java -cp bin com.pjr22.serialization.test.TestRunner
 
 ## Recent Fixes
 
+### JDK Map Serialization (2026-01-01)
+
+**Issue**: JDK Map implementations (like `LinkedHashMap`, `HashMap`, `TreeMap`) were being incorrectly serialized as objects with `$id`, `$class`, and `fields` metadata instead of as plain JSON maps. This caused deserialization to fail with `ClassCastException` when the deserialized Map was cast to the expected type (e.g., casting `LinkedHashMap` to `Item`).
+
+**Root Cause**: The `Serializer.serializeObject()` method was treating all Map instances as complex objects, adding object metadata (`$id`, `$class`, `fields`) to them. This is incorrect for JDK Map implementations which should be serialized as plain JSON maps.
+
+**Fix**: Added a check in `Serializer.serializeObject()` to detect JDK Map instances and serialize them as plain JSON maps using the `serializeMap()` method, instead of as objects with metadata.
+
+**Impact**: JDK Maps are now correctly serialized as plain JSON maps without metadata, enabling proper round-trip serialization and deserialization.
+
+**Example**:
+```json
+// Before (incorrect):
+{
+  "$id": "test_1",
+  "$class": "java.util.LinkedHashMap",
+  "fields": {}
+}
+
+// After (correct):
+{
+  "key1": "value1",
+  "key2": "value2"
+}
+```
+
 ### Map Key Type Deserialization (2025-12-30)
 
 **Issue**: When deserializing objects with Map fields where the key type is not String (e.g., `Map<UUID, Quest>`), the deserializer was not converting JSON string keys to the appropriate Java type. Since JSON map keys are always strings, map keys like UUID were being deserialized as String objects instead of UUID, causing type mismatches and lookup failures.

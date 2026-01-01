@@ -73,6 +73,13 @@ public class Serializer {
             return "{\"$ref\":\"" + objectToIdMap.get(object) + "\"}";
         }
 
+        // Check if this is a JDK Map implementation - serialize as plain JSON map
+        // JDK Maps (LinkedHashMap, HashMap, TreeMap, etc.) should be serialized as plain JSON maps,
+        // not as objects with $id, $class, and fields metadata
+        if (object instanceof Map) {
+            return serializeMap(object);
+        }
+
         // Check if this is a JDK class that can be serialized as a simple value
         if (ValueSerializer.canSerializeAsValue(object.getClass())) {
             Object value = ValueSerializer.serializeAsValue(object);
@@ -301,6 +308,11 @@ public class Serializer {
             } else if (value instanceof Collection) {
                 // Collection - serialize as JSON array
                 sb.append(serializeCollection(value));
+            } else if (value instanceof Map) {
+                // Nested Map - serialize as JSON map (recursively)
+                // This handles JDK Map implementations (LinkedHashMap, HashMap, etc.)
+                // which should be serialized as plain JSON maps, not as objects with metadata
+                sb.append(serializeMap(value));
             } else if (value.getClass().isArray()) {
                 // Array - serialize as JSON array
                 sb.append(serializeArray(value));

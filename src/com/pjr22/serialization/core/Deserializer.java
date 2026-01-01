@@ -1032,6 +1032,22 @@ public class Deserializer<T> {
         
         if (mapValue instanceof Map) {
             Map<String, Object> valueMap = (Map<String, Object>) mapValue;
+            
+            // Check if this is a reference to another object
+            if (valueMap.containsKey("$ref")) {
+                String refId = (String) valueMap.get("$ref");
+                Object referenced = objectRegistry.get(refId);
+                if (referenced == null) {
+                    throw new SerializationException("Referenced object not found in map value: " + refId);
+                }
+                // If the referenced object is a placeholder (still being constructed),
+                // return an unresolved reference marker
+                if (referenced == PLACEHOLDER) {
+                    return new UnresolvedReferenceMarker(refId);
+                }
+                return referenced;
+            }
+            
             // Check if this is an object definition with $id and $class
             if (valueMap.containsKey("$id") && valueMap.containsKey("$class")) {
                 Object result = deserializeObject(mapValue);
@@ -1140,39 +1156,57 @@ public class Deserializer<T> {
 
         Map<String, Object> parsedMap = (Map<String, Object>) value;
         
-        try {
-            // Get the generic type from the field to find key and value types
-            java.lang.reflect.Type genericType = field.getGenericType();
-            Class<?> keyType = String.class; // default
-            java.lang.reflect.Type valueType = null; // unknown by default
-            
-            if (genericType instanceof java.lang.reflect.ParameterizedType) {
-                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
-                java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
-                if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
-                    keyType = (Class<?>) typeArgs[0];
-                }
-                if (typeArgs.length >= 2) {
-                    valueType = typeArgs[1]; // Keep as Type for ParameterizedType support
-                }
+        // Get the generic type from the field to find key and value types
+        java.lang.reflect.Type genericType = field.getGenericType();
+        Class<?> keyType = String.class; // default
+        java.lang.reflect.Type valueType = null; // unknown by default
+        
+        if (genericType instanceof java.lang.reflect.ParameterizedType) {
+            java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
+            java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+            if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
+                keyType = (Class<?>) typeArgs[0];
             }
-            
-            // Create the result map with appropriate key types
-            Map<Object, Object> result = new LinkedHashMap<>();
-            for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
-                // Convert the key to the appropriate type
-                Object convertedKey = convertMapKey(entry.getKey(), keyType);
-                
-                // Deserialize the value based on its type (pass full Type for ParameterizedType support)
-                Object mapValue = deserializeMapValue(entry.getValue(), valueType);
-                
-                result.put(convertedKey, mapValue);
+            if (typeArgs.length >= 2) {
+                valueType = typeArgs[1]; // Keep as Type for ParameterizedType support
             }
-            return result;
-        } catch (Exception e) {
-            // If we can't determine the key type, just return the map as-is
-            return new LinkedHashMap<>(parsedMap);
         }
+        
+        // Determine the expected value class for validation
+        Class<?> expectedValueClass = null;
+        if (valueType instanceof Class) {
+            expectedValueClass = (Class<?>) valueType;
+        } else if (valueType instanceof java.lang.reflect.ParameterizedType) {
+            java.lang.reflect.Type rawType = ((java.lang.reflect.ParameterizedType) valueType).getRawType();
+            if (rawType instanceof Class) {
+                expectedValueClass = (Class<?>) rawType;
+            }
+        }
+        
+        // Create the result map with appropriate key types
+        Map<Object, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : parsedMap.entrySet()) {
+            // Convert the key to the appropriate type
+            Object convertedKey = convertMapKey(entry.getKey(), keyType);
+            
+            // Deserialize the value based on its type (pass full Type for ParameterizedType support)
+            Object mapValue = deserializeMapValue(entry.getValue(), valueType);
+            
+            // Validate that deserialized value is the expected type
+            if (expectedValueClass != null && mapValue != null && !expectedValueClass.isInstance(mapValue)) {
+                throw new SerializationException(
+                    "Type mismatch in map value for field '" + field.getName() + "': " +
+                    "expected " + expectedValueClass.getName() + 
+                    " but got " + mapValue.getClass().getName() +
+                    " for key '" + entry.getKey() + "'. " +
+                    "Original value was: " + (entry.getValue() instanceof Map ? 
+                        ((Map<?,?>)entry.getValue()).keySet() : entry.getValue())
+                );
+            }
+            
+            result.put(convertedKey, mapValue);
+        }
+        return result;
     }
 
     /**

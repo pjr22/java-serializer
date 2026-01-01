@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Critical**: Fixed `$ref` references in map values not being resolved - map values that reference other objects via `$ref` were returned as raw `LinkedHashMap` instead of the referenced object
+- **Critical**: Fixed silent exception swallowing in `convertToMap` that caused nested objects in maps to be returned as raw `LinkedHashMap` instead of being properly deserialized
 - Removed duplicate AtomicReference handling code in Deserializer
 - Fixed null map key handling (null keys now deserialize correctly)
 - Added proper atomic type reconstruction for map values (AtomicBoolean, AtomicInteger, AtomicLong, AtomicReference)
@@ -14,6 +16,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - New test class `AtomicMapValueTest` for atomic types in map values
+- New test class `MapValueObjectDeserializationTest` for complex object values in maps (covers Map<UUID, Item> and polymorphic scenarios)
+- Type validation in `convertToMap` to detect and report type mismatches early with descriptive error messages
 
 ## [1.0.0] - 2026-01-01
 

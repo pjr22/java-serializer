@@ -29,6 +29,7 @@ public class TestRunner {
         runTest("AtomicReferenceDeserializationTest", AtomicReferenceDeserializationTest::new);
         runTest("CircularReferenceConstructorTest", CircularReferenceConstructorTest::new);
         runTest("JdkMapSerializationTest", JdkMapSerializationTest::new);
+        runTest("AtomicMapValueTest", AtomicMapValueTest::new);
 
         System.out.println();
         System.out.println("========================================");

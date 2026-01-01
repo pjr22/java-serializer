@@ -214,15 +214,7 @@ public class Deserializer<T> {
                     try {
                         Class<?> clazz = Class.forName(className);
                         Object value = map.get("$value");
-                        // Strip quotes from JSON string values if present
-                        Object rawValue = value;
-                        if (value instanceof String) {
-                            String strValue = (String) value;
-                            if (strValue.startsWith("\"") && strValue.endsWith("\"") && strValue.length() > 1) {
-                                rawValue = strValue.substring(1, strValue.length() - 1);
-                            }
-                        }
-                        Object instance = ValueSerializer.deserializeFromValue(rawValue, clazz);
+                        Object instance = ValueSerializer.deserializeFromValue(value, clazz);
                         
                         if (instance != null) {
                             // Successfully deserialized from value
@@ -328,41 +320,7 @@ public class Deserializer<T> {
                 if (constructors.length > 0) {
                     Constructor<?> fallbackConstructor = constructors[0];
                     fallbackConstructor.setAccessible(true);
-                    try {
-                        // Try to instantiate with default values for all parameters
-                        return fallbackConstructor.newInstance(getDefaultValues(fallbackConstructor.getParameterTypes()));
-                    } catch (Exception ex) {
-                        // If default values don't work, try to find suitable values
-                        Class<?>[] paramTypes = fallbackConstructor.getParameterTypes();
-                        Object[] fallbackValues = new Object[paramTypes.length];
-                        for (int i = 0; i < paramTypes.length; i++) {
-                            Class<?> paramType = paramTypes[i];
-                            // For enum types, try to find a matching constant
-                            if (paramType.isEnum()) {
-                                // Try to find an enum constant from fields that matches the parameter type
-                                for (String fieldName : fields.keySet()) {
-                                    try {
-                                        Class<?> fieldClass = Class.forName(fieldName);
-                                        if (fieldClass.isEnum() && fieldClass.equals(paramType)) {
-                                            // Found a matching enum field, use its first constant as fallback
-                                            Object[] enumConstants = fieldClass.getEnumConstants();
-                                            if (enumConstants.length > 0) {
-                                                fallbackValues[i] = enumConstants[0];
-                                                break;
-                                            }
-                                        }
-                                    } catch (ClassNotFoundException cnfe) {
-                                        // Ignore, field name might not be a class name
-                                    }
-                                }
-                            }
-                            // If no enum match found, use default value
-                            if (fallbackValues[i] == null) {
-                                fallbackValues[i] = getDefaultValue(paramTypes[i]);
-                            }
-                        }
-                        return fallbackConstructor.newInstance(fallbackValues);
-                    }
+                    return fallbackConstructor.newInstance(getDefaultValues(fallbackConstructor.getParameterTypes()));
                 }
                 throw new SerializationException("No suitable constructor found for class: " + clazz.getName());
             }
@@ -515,11 +473,7 @@ public class Deserializer<T> {
         } else if (targetType == String.class) {
             return value.toString();
         } else if (targetType == BigDecimal.class) {
-            if (value instanceof Number) {
-                return new BigDecimal(value.toString());
-            } else {
-                return new BigDecimal(value.toString());
-            }
+            return convertToBigDecimal(value);
         } else if (targetType.isEnum()) {
             return convertToEnum(targetType, value);
         } else if (value instanceof Map) {
@@ -639,37 +593,6 @@ public class Deserializer<T> {
             }
         }
 
-        // Handle AtomicReference
-        if (fieldType == AtomicReference.class) {
-            Object refValue;
-            if (value instanceof Map) {
-                // Deserialize the nested object
-                refValue = deserializeObject(value);
-            } else {
-                refValue = value;
-            }
-            
-            // Get the generic type parameter from the field to determine the correct type
-            Class<?> genericType = null;
-            java.lang.reflect.Type genericFieldType = field.getGenericType();
-            if (genericFieldType instanceof java.lang.reflect.ParameterizedType) {
-                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericFieldType;
-                java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
-                if (typeArgs.length > 0 && typeArgs[0] instanceof Class) {
-                    genericType = (Class<?>) typeArgs[0];
-                }
-            }
-            
-            // Convert the value to the expected generic type if known
-            Object convertedValue = refValue;
-            if (genericType != null && refValue != null) {
-                convertedValue = convertValueToType(refValue, genericType);
-            }
-            
-            field.set(instance, new AtomicReference<>(convertedValue));
-            return;
-        }
-
         // Handle AtomicBoolean
         if (fieldType == AtomicBoolean.class) {
             boolean boolValue = convertToBoolean(value);
@@ -711,11 +634,7 @@ public class Deserializer<T> {
         } else if (fieldType == String.class) {
             field.set(instance, value.toString());
         } else if (fieldType == BigDecimal.class) {
-            if (value instanceof Number) {
-                field.set(instance, new BigDecimal(value.toString()));
-            } else {
-                field.set(instance, new BigDecimal(value.toString()));
-            }
+            field.set(instance, convertToBigDecimal(value));
         } else if (fieldType.isEnum()) {
             field.set(instance, convertToEnum(fieldType, value));
         } else if (fieldType.isArray()) {
@@ -826,11 +745,7 @@ public class Deserializer<T> {
         } else if (targetType == String.class) {
             return value.toString();
         } else if (targetType == BigDecimal.class) {
-            if (value instanceof Number) {
-                return new BigDecimal(value.toString());
-            } else {
-                return new BigDecimal(value.toString());
-            }
+            return convertToBigDecimal(value);
         } else if (targetType.isEnum()) {
             return convertToEnum(targetType, value);
         } else if (value instanceof Map) {
@@ -984,6 +899,11 @@ public class Deserializer<T> {
         return str.isEmpty() ? '\0' : str.charAt(0);
     }
 
+    private BigDecimal convertToBigDecimal(Object value) {
+        if (value == null) return null;
+        return new BigDecimal(value.toString());
+    }
+
     private Object convertToEnum(Class<?> enumType, Object value) {
         if (value == null) return null;
         String enumName = value.toString();
@@ -1044,6 +964,11 @@ public class Deserializer<T> {
      * @return the converted key
      */
     private Object convertMapKey(String keyString, Class<?> keyType) {
+        // Handle null keys (serialized as literal "null" string)
+        if ("null".equals(keyString) && keyType != String.class) {
+            return null;
+        }
+        
         if (keyType == String.class) {
             return keyString;
         } else if (keyType == Long.class || keyType == long.class) {
@@ -1181,18 +1106,27 @@ public class Deserializer<T> {
             return deserializedList;
         }
         
-        // For primitive types, try to convert if valueType is known
-        if (valueType != null) {
-            if (valueType == Long.class || valueType == long.class) {
+        // For primitive and atomic types, try to convert if valueType is known
+        if (valueType instanceof Class<?>) {
+            Class<?> vt = (Class<?>) valueType;
+            if (vt == Long.class || vt == long.class) {
                 return convertToLong(mapValue);
-            } else if (valueType == Integer.class || valueType == int.class) {
+            } else if (vt == Integer.class || vt == int.class) {
                 return convertToInt(mapValue);
-            } else if (valueType == Double.class || valueType == double.class) {
+            } else if (vt == Double.class || vt == double.class) {
                 return convertToDouble(mapValue);
-            } else if (valueType == Float.class || valueType == float.class) {
+            } else if (vt == Float.class || vt == float.class) {
                 return convertToFloat(mapValue);
-            } else if (valueType == Boolean.class || valueType == boolean.class) {
+            } else if (vt == Boolean.class || vt == boolean.class) {
                 return convertToBoolean(mapValue);
+            } else if (vt == AtomicBoolean.class) {
+                return new AtomicBoolean(convertToBoolean(mapValue));
+            } else if (vt == AtomicInteger.class) {
+                return new AtomicInteger(convertToInt(mapValue));
+            } else if (vt == AtomicLong.class) {
+                return new AtomicLong(convertToLong(mapValue));
+            } else if (vt == AtomicReference.class) {
+                return new AtomicReference<>(mapValue);
             }
         }
         

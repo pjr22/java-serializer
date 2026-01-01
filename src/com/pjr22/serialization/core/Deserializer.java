@@ -443,7 +443,7 @@ public class Deserializer<T> {
                 
                 // Get the generic type from the parameter to find key and value types
                 Class<?> keyType = String.class; // default
-                Class<?> valueType = null; // unknown by default
+                java.lang.reflect.Type valueType = null; // unknown by default
                 java.lang.reflect.Type genericType = parameter.getParameterizedType();
                 if (genericType instanceof java.lang.reflect.ParameterizedType) {
                     java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
@@ -451,8 +451,8 @@ public class Deserializer<T> {
                     if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
                         keyType = (Class<?>) typeArgs[0];
                     }
-                    if (typeArgs.length >= 2 && typeArgs[1] instanceof Class) {
-                        valueType = (Class<?>) typeArgs[1];
+                    if (typeArgs.length >= 2) {
+                        valueType = typeArgs[1]; // Keep as Type for ParameterizedType support
                     }
                 }
                 
@@ -461,7 +461,7 @@ public class Deserializer<T> {
                     // Convert the key to the appropriate type
                     Object convertedKey = convertMapKey(entry.getKey(), keyType);
                     
-                    // Deserialize the value based on its type
+                    // Deserialize the value based on its type (pass full Type for ParameterizedType support)
                     Object mapValue = deserializeMapValue(entry.getValue(), valueType);
                     
                     result.put(convertedKey, mapValue);
@@ -1086,6 +1086,21 @@ public class Deserializer<T> {
      * @throws SerializationException if deserialization fails
      */
     private Object deserializeMapValue(Object mapValue, Class<?> valueType) throws SerializationException {
+        return deserializeMapValue(mapValue, (java.lang.reflect.Type) valueType);
+    }
+
+    /**
+     * Deserializes a map value based on its expected type.
+     * This overload accepts a Type parameter to handle ParameterizedType values
+     * (e.g., Map<Long, String>) for nested maps with typed keys.
+     *
+     * @param mapValue value from the parsed map
+     * @param valueType expected value type (may be null)
+     * @return the deserialized value
+     * @throws SerializationException if deserialization fails
+     */
+    @SuppressWarnings("unchecked")
+    private Object deserializeMapValue(Object mapValue, java.lang.reflect.Type valueType) throws SerializationException {
         if (mapValue == null) {
             return null;
         }
@@ -1102,7 +1117,51 @@ public class Deserializer<T> {
                 }
                 return result;
             }
-            // Otherwise, it's a nested map - return as-is for now
+            
+            // Handle nested maps with typed keys
+            // If valueType is a ParameterizedType with raw type Map, convert keys to appropriate types
+            if (valueType instanceof java.lang.reflect.ParameterizedType) {
+                java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) valueType;
+                java.lang.reflect.Type rawType = paramType.getRawType();
+                if (rawType instanceof Class && Map.class.isAssignableFrom((Class<?>) rawType)) {
+                    // This is a Map type - extract key and value type parameters
+                    java.lang.reflect.Type[] typeArgs = paramType.getActualTypeArguments();
+                    Class<?> keyType = String.class; // default
+                    Class<?> nestedValueType = null; // unknown by default
+                    java.lang.reflect.Type nestedValueTypeType = null; // for nested ParameterizedType
+                    
+                    if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
+                        keyType = (Class<?>) typeArgs[0];
+                    }
+                    if (typeArgs.length >= 2) {
+                        if (typeArgs[1] instanceof Class) {
+                            nestedValueType = (Class<?>) typeArgs[1];
+                        } else {
+                            nestedValueTypeType = typeArgs[1]; // ParameterizedType for nested maps
+                        }
+                    }
+                    
+                    // Create a new map with properly typed keys
+                    Map<Object, Object> result = new LinkedHashMap<>();
+                    for (Map.Entry<String, Object> entry : valueMap.entrySet()) {
+                        // Convert the key to the appropriate type (handles Long, Integer, UUID, Enum, etc.)
+                        Object convertedKey = convertMapKey(entry.getKey(), keyType);
+                        
+                        // Recursively deserialize the value with its type information
+                        Object nestedValue;
+                        if (nestedValueTypeType != null) {
+                            nestedValue = deserializeMapValue(entry.getValue(), nestedValueTypeType);
+                        } else {
+                            nestedValue = deserializeMapValue(entry.getValue(), nestedValueType);
+                        }
+                        
+                        result.put(convertedKey, nestedValue);
+                    }
+                    return result;
+                }
+            }
+            
+            // Otherwise, it's a nested map - return as-is
             return mapValue;
         } else if (mapValue instanceof List) {
             // List values may contain nested objects - deserialize each element
@@ -1151,7 +1210,7 @@ public class Deserializer<T> {
             // Get the generic type from the field to find key and value types
             java.lang.reflect.Type genericType = field.getGenericType();
             Class<?> keyType = String.class; // default
-            Class<?> valueType = null; // unknown by default
+            java.lang.reflect.Type valueType = null; // unknown by default
             
             if (genericType instanceof java.lang.reflect.ParameterizedType) {
                 java.lang.reflect.ParameterizedType paramType = (java.lang.reflect.ParameterizedType) genericType;
@@ -1159,8 +1218,8 @@ public class Deserializer<T> {
                 if (typeArgs.length >= 1 && typeArgs[0] instanceof Class) {
                     keyType = (Class<?>) typeArgs[0];
                 }
-                if (typeArgs.length >= 2 && typeArgs[1] instanceof Class) {
-                    valueType = (Class<?>) typeArgs[1];
+                if (typeArgs.length >= 2) {
+                    valueType = typeArgs[1]; // Keep as Type for ParameterizedType support
                 }
             }
             
@@ -1170,7 +1229,7 @@ public class Deserializer<T> {
                 // Convert the key to the appropriate type
                 Object convertedKey = convertMapKey(entry.getKey(), keyType);
                 
-                // Deserialize the value based on its type
+                // Deserialize the value based on its type (pass full Type for ParameterizedType support)
                 Object mapValue = deserializeMapValue(entry.getValue(), valueType);
                 
                 result.put(convertedKey, mapValue);

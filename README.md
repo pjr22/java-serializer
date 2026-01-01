@@ -422,6 +422,60 @@ java -cp bin com.pjr22.serialization.test.TestRunner
 
 ## Recent Fixes
 
+### Nested Map Type Deserialization (2026-01-01)
+
+**Issue**: When deserializing objects with nested maps where the inner map has typed keys (e.g., `Map<String, Map<Long, String>>`), the deserializer was not converting the inner map's keys to their proper types. This caused `ClassCastException` or assertion failures when trying to use the deserialized map with typed keys.
+
+**Root Cause**: The `deserializeMapValue` method only accepted a `Class<?>` parameter for the value type. When the value type was a `ParameterizedType` (like `Map<Long, String>`), it was `null` because the code only checked for simple `Class` types. The method would return the inner map as-is without converting its keys.
+
+**Fix**:
+1. Added a new overload of `deserializeMapValue` that accepts `java.lang.reflect.Type` parameter to handle `ParameterizedType` values
+2. Modified the existing `deserializeMapValue` to delegate to the new overload
+3. Updated `convertToMap` and `deserializeValueForConstructor` to pass the full type information (as `Type` instead of just `Class<?>`)
+4. Added logic in the new overload to handle `ParameterizedType` for nested maps, extracting key/value type parameters and recursively converting keys
+
+**Impact**: Nested maps with typed keys are now correctly deserialized. The fix works for any Java type that can be expressed as a String and re-constructed from a String (Long, Integer, UUID, Enum, etc.).
+
+**Example**:
+```java
+// Class with nested Map<String, Map<Long, String>> field
+public class PersonWithNestedMap {
+    private final Map<String, Map<Long, String>> nestedMap;
+    
+    public PersonWithNestedMap(Map<String, Map<Long, String>> nestedMap) {
+        this.nestedMap = new LinkedHashMap<>(nestedMap);
+    }
+    
+    public Map<String, Map<Long, String>> getNestedMap() {
+        return nestedMap;
+    }
+}
+
+// Serialization
+Map<Long, String> innerMap = new LinkedHashMap<>();
+innerMap.put(1001L, "Inner Value");
+
+Map<String, Map<Long, String>> outerMap = new LinkedHashMap<>();
+outerMap.put("nested", innerMap);
+
+PersonWithNestedMap original = new PersonWithNestedMap(outerMap);
+
+Serializer serializer = new Serializer("test", 0);
+ByteArrayOutputStream out = new ByteArrayOutputStream();
+serializer.serialize(original, out);
+
+// Deserialization - inner map keys are automatically converted to Long type
+Deserializer<PersonWithNestedMap> deserializer = new Deserializer<>(PersonWithNestedMap.class);
+ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+PersonWithNestedMap deserialized = deserializer.deserialize(in);
+
+// Inner map keys are Long type, not String
+Map<Long, String> deserializedInnerMap = deserialized.getNestedMap().get("nested");
+for (Map.Entry<Long, String> entry : deserializedInnerMap.entrySet()) {
+    System.out.println(entry.getKey() instanceof Long); // true
+}
+```
+
 ### JDK Map Serialization (2026-01-01)
 
 **Issue**: JDK Map implementations (like `LinkedHashMap`, `HashMap`, `TreeMap`) were being incorrectly serialized as objects with `$id`, `$class`, and `fields` metadata instead of as plain JSON maps. This caused deserialization to fail with `ClassCastException` when the deserialized Map was cast to the expected type (e.g., casting `LinkedHashMap` to `Item`).

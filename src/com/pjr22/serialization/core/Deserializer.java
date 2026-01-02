@@ -116,7 +116,9 @@ public class Deserializer<T> {
             return (T) deserializeObject(parsed);
 
         } catch (Exception e) {
-            throw new SerializationException("Error deserializing object", e);
+            String lengthLimitedJson = (json != null && json.length() > 97) ? (json.substring(0, 97) + "...") : json;
+            String message = String.format("Error deserializing %s from '%s'", targetType.getSimpleName(), lengthLimitedJson);
+            throw new SerializationException(message, e);
         }
     }
 
@@ -395,6 +397,7 @@ public class Deserializer<T> {
         // Handle Map types - create the appropriate Map implementation
         if (Map.class.isAssignableFrom(targetType)) {
             if (value instanceof Map) {
+                @SuppressWarnings("unchecked")
                 Map<String, Object> valueMap = (Map<String, Object>) value;
                 // Create a LinkedHashMap for the constructor parameter
                 Map<Object, Object> result = new LinkedHashMap<>();

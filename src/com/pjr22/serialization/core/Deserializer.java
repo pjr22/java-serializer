@@ -211,6 +211,11 @@ public class Deserializer<T> {
                 String objectId = (String) map.get("$id");
                 String className = (String) map.get("$class");
 
+                // Check if this is a $mapKeys section - process and register the map key objects
+                if (map.containsKey("$mapKeys")) {
+                    parseMapKeys((Map<String, Object>) map.get("$mapKeys"));
+                }
+
                 // Check if this is a simple value format (for JDK classes)
                 if (map.containsKey("$value")) {
                     try {
@@ -823,6 +828,71 @@ public class Deserializer<T> {
     }
     
     /**
+     * Parses the $mapKeys section and registers the map key objects.
+     * These objects can then be referenced by map keys using $ref:ID format.
+     *
+     * @param mapKeysMap the $mapKeys map containing object definitions
+     * @throws SerializationException if a deserialization error occurs
+     */
+    @SuppressWarnings("unchecked")
+    private void parseMapKeys(Map<String, Object> mapKeysMap) throws SerializationException {
+        for (Map.Entry<String, Object> entry : mapKeysMap.entrySet()) {
+            String keyId = entry.getKey();
+            Object keyObj = entry.getValue();
+            
+            if (keyObj instanceof Map) {
+                Map<String, Object> objMap = (Map<String, Object>) keyObj;
+                
+                // Check if this is an object definition with $id and $class
+                if (objMap.containsKey("$id") && objMap.containsKey("$class")) {
+                    String objectId = (String) objMap.get("$id");
+                    String className = (String) objMap.get("$class");
+                    
+                    // Check if this is a simple value format (for JDK classes)
+                    if (objMap.containsKey("$value")) {
+                        try {
+                            Class<?> clazz = Class.forName(className);
+                            Object value = objMap.get("$value");
+                            Object instance = ValueSerializer.deserializeFromValue(value, clazz);
+                            
+                            if (instance != null) {
+                                // Successfully deserialized from value
+                                objectRegistry.register(objectId, instance);
+                            }
+                        } catch (ClassNotFoundException e) {
+                            throw new SerializationException("Class not found: " + className, e);
+                        }
+                    } else {
+                        // Regular object with fields
+                        Map<String, Object> fields = (Map<String, Object>) objMap.get("fields");
+                        
+                        // Check if already deserialized
+                        Object existing = objectRegistry.get(objectId);
+                        if (existing == null) {
+                            try {
+                                Class<?> clazz = Class.forName(className);
+                                
+                                // Check serialVersionUID
+                                if (objMap.containsKey("serialVersionUID")) {
+                                    checkSerialVersionUID(clazz, objMap.get("serialVersionUID"));
+                                }
+                                
+                                // Create instance
+                                Object instance = createInstance(clazz, fields);
+                                objectRegistry.register(objectId, instance);
+                                setFields(instance, clazz, fields, new HashMap<>());
+                                
+                            } catch (ClassNotFoundException e) {
+                                throw new SerializationException("Class not found: " + className, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
      * Checks serialVersionUID compatibility.
      */
     private void checkSerialVersionUID(Class<?> clazz, Object serializedVersion) {
@@ -965,11 +1035,22 @@ public class Deserializer<T> {
      * @param keyString string key from JSON
      * @param keyType target type for the key
      * @return the converted key
+     * @throws SerializationException if a deserialization error occurs
      */
-    private Object convertMapKey(String keyString, Class<?> keyType) {
+    private Object convertMapKey(String keyString, Class<?> keyType) throws SerializationException {
         // Handle null keys (serialized as literal "null" string)
         if ("null".equals(keyString) && keyType != String.class) {
             return null;
+        }
+        
+        // Handle complex object keys referenced by $ref:ID
+        if (keyString.startsWith("$ref:")) {
+            String refId = keyString.substring(5); // Remove "$ref:" prefix
+            Object referenced = objectRegistry.get(refId);
+            if (referenced != null) {
+                return referenced;
+            }
+            throw new SerializationException("Referenced map key object not found: " + refId);
         }
         
         if (keyType == String.class) {

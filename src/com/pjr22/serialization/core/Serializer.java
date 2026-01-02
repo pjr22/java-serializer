@@ -26,6 +26,9 @@ public class Serializer {
     private final ObjectIdGenerator idGenerator;
     private final ObjectRegistry objectRegistry;
     private final Map<Object, String> objectToIdMap;
+    
+    // Track complex objects used as map keys
+    private final Map<Object, String> mapKeyToIdMap = new IdentityHashMap<>();
 
     /**
      * Creates a new Serializer with the specified serialization key and starting ID.
@@ -122,6 +125,12 @@ public class Serializer {
         sb.append("\"fields\":{");
         serializeFields(object, sb);
         sb.append("}");
+
+        // Add $mapKeys section if there are complex objects used as map keys
+        if (!mapKeyToIdMap.isEmpty()) {
+            sb.append(",");
+            serializeMapKeys(sb);
+        }
 
         sb.append("}");
 
@@ -291,8 +300,21 @@ public class Serializer {
             // For enum keys, use the name() method to get the enum constant name
             if (key != null && key.getClass().isEnum()) {
                 keyString = ((Enum<?>) key).name();
-            } else if (key != null) {
+            } else if (key != null && isSimpleType(key)) {
+                // Simple types (String, Number, etc.) - use toString()
                 keyString = key.toString();
+            } else if (key != null) {
+                // Complex object key - register and use reference
+                String keyId;
+                if (mapKeyToIdMap.containsKey(key)) {
+                    keyId = mapKeyToIdMap.get(key);
+                } else {
+                    keyId = idGenerator.generateId();
+                    mapKeyToIdMap.put(key, keyId);
+                    // Also register in the main object registry
+                    objectRegistry.register(keyId, key);
+                }
+                keyString = "$ref:" + keyId;
             } else {
                 keyString = "null";
             }
@@ -456,6 +478,54 @@ public class Serializer {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Serializes the $mapKeys section containing complex objects used as map keys.
+     *
+     * @param sb the StringBuilder to append to
+     * @throws SerializationException if a serialization error occurs
+     */
+    private void serializeMapKeys(StringBuilder sb) throws SerializationException {
+        sb.append("\"$mapKeys\":{");
+        boolean first = true;
+        
+        for (Map.Entry<Object, String> entry : mapKeyToIdMap.entrySet()) {
+            if (!first) {
+                sb.append(",");
+            }
+            first = false;
+            
+            Object key = entry.getKey();
+            String keyId = entry.getValue();
+            
+            sb.append("\"").append(keyId).append("\":");
+            
+            // Serialize the key object as a full object definition
+            // Note: We use the same ID that was generated in serializeMap() for consistency
+            String objectId = keyId; // Use the same ID as the map key reference
+            objectToIdMap.put(key, objectId);
+            objectRegistry.register(objectId, key);
+            
+            sb.append("{");
+            sb.append("\"$id\":\"").append(objectId).append("\",");
+            sb.append("\"$class\":\"").append(key.getClass().getName()).append("\",");
+            
+            // Add serialVersionUID if present
+            Long serialVersionUID = getSerialVersionUID(key.getClass());
+            if (serialVersionUID != null) {
+                sb.append("\"serialVersionUID\":").append(serialVersionUID).append(",");
+            }
+            
+            // Serialize fields
+            sb.append("\"fields\":{");
+            serializeFields(key, sb);
+            sb.append("}");
+            
+            sb.append("}");
+        }
+        
+        sb.append("}");
     }
 
     /**

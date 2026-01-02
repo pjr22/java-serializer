@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Complex object map keys: Maps with complex objects as keys are now supported. Complex objects used as map keys are serialized using a `$ref:ID` reference format and stored in a `$mapKeys` section with full object definitions. This enables proper serialization and deserialization of maps with complex object keys (e.g., custom classes like `Effect`).
+
 ### Fixed
 - **Critical**: Fixed `$ref` references in map values not being resolved - map values that reference other objects via `$ref` were returned as raw `LinkedHashMap` instead of the referenced object
 - **Critical**: Fixed silent exception swallowing in `convertToMap` that caused nested objects in maps to be returned as raw `LinkedHashMap` instead of being properly deserialized

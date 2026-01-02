@@ -1143,6 +1143,8 @@ public class Deserializer<T> {
                 return new AtomicLong(convertToLong(mapValue));
             } else if (vt == AtomicReference.class) {
                 return new AtomicReference<>(mapValue);
+            } else if (vt.isEnum()) {
+                return convertToEnum(vt, mapValue);
             }
         }
         

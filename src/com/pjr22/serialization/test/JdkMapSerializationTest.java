@@ -91,9 +91,6 @@ public class JdkMapSerializationTest extends TestCase {
         serializer.serialize(data, out);
         String json = out.toString();
 
-        System.out.println("Serialized JSON:");
-        System.out.println(json);
-
         // Verify that innerMap is NOT serialized with object metadata
         // It should be serialized as a plain JSON object, not with $id, $class, fields
         assertFalse(json.contains("\"innerMap\":{\"$id\":"), 
@@ -119,9 +116,6 @@ public class JdkMapSerializationTest extends TestCase {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         serializer.serialize(gameState, out);
         String json = out.toString();
-
-        System.out.println("Serialized JSON:");
-        System.out.println(json);
 
         // Verify that items are serialized correctly
         assertTrue(json.contains("\"items\""), "Items field should be present");
@@ -162,9 +156,6 @@ public class JdkMapSerializationTest extends TestCase {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         serializer.serialize(root, out);
         String json = out.toString();
-
-        System.out.println("Serialized JSON:");
-        System.out.println(json);
 
         // Verify that LinkedHashMap is NOT serialized with object metadata
         assertFalse(json.contains("\"1aafbbb8-b0ed-414f-95ae-db2ba379d278\":{\"$id\":"), 
@@ -208,9 +199,6 @@ public class JdkMapSerializationTest extends TestCase {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         serializer.serialize(map, out);
         String json = out.toString();
-
-        System.out.println("Serialized JSON:");
-        System.out.println(json);
 
         // Verify LinkedHashMap is NOT serialized with object metadata
         assertFalse(json.contains("{\"$id\":"), 

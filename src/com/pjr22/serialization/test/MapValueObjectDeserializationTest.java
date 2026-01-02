@@ -182,9 +182,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         serializer.serialize(original, out);
         String json = out.toString();
 
-        System.out.println("Serialized JSON:");
-        System.out.println(json);
-
         // Deserialize
         Deserializer<Quest> deserializer = new Deserializer<>(Quest.class);
         ByteArrayInputStream in = new ByteArrayInputStream(json.getBytes());
@@ -240,9 +237,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         serializer.serialize(original, out);
         String json = out.toString();
 
-        System.out.println("Polymorphic JSON:");
-        System.out.println(json);
-
         // Deserialize
         Deserializer<Quest> deserializer = new Deserializer<>(Quest.class);
         ByteArrayInputStream in = new ByteArrayInputStream(json.getBytes());
@@ -292,9 +286,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         serializer.serialize(original, out);
         String json = out.toString();
-
-        System.out.println("Synchronized Map JSON:");
-        System.out.println(json);
 
         // Deserialize
         Deserializer<QuestWithSynchronizedMap> deserializer = new Deserializer<>(QuestWithSynchronizedMap.class);
@@ -376,9 +367,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         serializer.serialize(original, out);
         String json = out.toString();
 
-        System.out.println("Deeply Nested JSON:");
-        System.out.println(json);
-
         // Deserialize
         Deserializer<SavedGame> deserializer = new Deserializer<>(SavedGame.class);
         ByteArrayInputStream in = new ByteArrayInputStream(json.getBytes());
@@ -402,9 +390,8 @@ public class MapValueObjectDeserializationTest extends TestCase {
 
         // Verify each item is properly deserialized (not a LinkedHashMap)
         for (Map.Entry<UUID, Item> entry : deserializedItems.entrySet()) {
-            System.out.println("Item key: " + entry.getKey() + ", value type: " + entry.getValue().getClass().getName());
             assertTrue(entry.getKey() instanceof UUID, "Key should be UUID type");
-            assertTrue(entry.getValue() instanceof Item, 
+            assertTrue(entry.getValue() instanceof Item,
                 "Value should be Item type, but was: " + entry.getValue().getClass().getName());
         }
 
@@ -452,9 +439,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         serializer.serialize(original, out);
         String json = out.toString();
 
-        System.out.println("Reference Test JSON:");
-        System.out.println(json);
-
         // Verify the JSON contains $ref (the second occurrence of the shared item)
         assertTrue(json.contains("$ref"), "JSON should contain $ref for shared object");
 
@@ -488,8 +472,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
 
         // Both should reference the same object (identity check)
         assertTrue(item1 == item2, "Both quests should reference the same Item object");
-
-        System.out.println("Shared item name: " + item1.getName());
     }
 
     /**
@@ -526,9 +508,6 @@ public class MapValueObjectDeserializationTest extends TestCase {
         serializer.serialize(original, out);
         String json = out.toString();
 
-        System.out.println("Real World Structure JSON:");
-        System.out.println(json);
-
         // Deserialize
         Deserializer<SavedGameWithSynchronizedMaps> deserializer = new Deserializer<>(SavedGameWithSynchronizedMaps.class);
         ByteArrayInputStream in = new ByteArrayInputStream(json.getBytes());
@@ -537,32 +516,23 @@ public class MapValueObjectDeserializationTest extends TestCase {
         // Verify quests
         Map<UUID, QuestWithFinalMap> deserializedQuests = deserialized.getQuests();
         assertNotNull(deserializedQuests, "Quests map should not be null");
-        System.out.println("Quests map size: " + deserializedQuests.size());
-        System.out.println("Quests map type: " + deserializedQuests.getClass().getName());
-        
         assertEquals(1, deserializedQuests.size(), "Should have 1 quest");
 
         // Verify quest is properly deserialized
         QuestWithFinalMap deserializedQuest = deserializedQuests.get(UUID.fromString("00000000-0000-0000-0000-000000000001"));
         assertNotNull(deserializedQuest, "Quest should exist");
-        System.out.println("Quest type: " + deserializedQuest.getClass().getName());
-        
-        assertTrue(deserializedQuest instanceof QuestWithFinalMap, 
+        assertTrue(deserializedQuest instanceof QuestWithFinalMap,
             "Quest value should be QuestWithFinalMap type, but was: " + deserializedQuest.getClass().getName());
 
         // Verify nested items map
         Map<UUID, Item> deserializedItems = deserializedQuest.getItems();
         assertNotNull(deserializedItems, "Items map should not be null");
-        System.out.println("Items map size: " + deserializedItems.size());
-        System.out.println("Items map type: " + deserializedItems.getClass().getName());
-        
         assertEquals(2, deserializedItems.size(), "Should have 2 items");
 
         // Verify each item is properly deserialized
         for (Map.Entry<UUID, Item> entry : deserializedItems.entrySet()) {
-            System.out.println("  Item key: " + entry.getKey() + ", value type: " + entry.getValue().getClass().getName());
             assertTrue(entry.getKey() instanceof UUID, "Key should be UUID type");
-            assertTrue(entry.getValue() instanceof Item, 
+            assertTrue(entry.getValue() instanceof Item,
                 "Value should be Item type, but was: " + entry.getValue().getClass().getName());
         }
     }

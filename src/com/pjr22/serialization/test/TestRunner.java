@@ -28,6 +28,7 @@ public class TestRunner {
         runTest("MapKeyTypeDeserializationTest", MapKeyTypeDeserializationTest::new);
         runTest("AtomicReferenceDeserializationTest", AtomicReferenceDeserializationTest::new);
         runTest("CircularReferenceConstructorTest", CircularReferenceConstructorTest::new);
+        runTest("EnumMapValueTest", EnumMapValueTest::new);
         runTest("JdkMapSerializationTest", JdkMapSerializationTest::new);
         runTest("AtomicMapValueTest", AtomicMapValueTest::new);
         runTest("MapValueObjectDeserializationTest", MapValueObjectDeserializationTest::new);

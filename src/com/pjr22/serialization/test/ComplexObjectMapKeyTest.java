@@ -5,9 +5,14 @@ import com.pjr22.serialization.core.Serializer;
 import com.pjr22.serialization.core.SerializationException;
 import com.pjr22.serialization.test.data.Effect;
 import com.pjr22.serialization.test.data.PersonWithEffectMap;
+import com.pjr22.serialization.test.data.PersonWithEffectMapAndList;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Test case for Map<ComplexObject, Object> serialization.
@@ -149,6 +154,122 @@ public class ComplexObjectMapKeyTest extends TestCase {
 
         } catch (SerializationException e) {
             fail("Deserialization failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Test that $mapKeys only appears in objects that actually contain maps with complex keys.
+     * This test reproduces the issue where $mapKeys appears in nested objects that don't
+     * have maps with complex keys.
+     */
+    public void testMapKeysOnlyInObjectsWithComplexKeyMaps() {
+        PersonWithEffectMapAndList person = new PersonWithEffectMapAndList();
+        person.setName("Test Character");
+
+        // Create effect1 that will be used as a map key
+        Effect effect1 = new Effect(
+            "increased constitution",
+            Effect.Attribute.Constitution,
+            0.01,
+            1800,
+            486127,
+            Effect.Type.FORTIFY_ATTRIBUTE,
+            0,
+            10
+        );
+
+        // Create effect2 that will be used as a map key AND added to the list
+        Effect effect2 = new Effect(
+            "increased strength",
+            Effect.Attribute.Strength,
+            0.02,
+            1200,
+            123456,
+            Effect.Type.FORTIFY_ATTRIBUTE,
+            0,
+            5
+        );
+
+        // Create effect3 that will only be in the list (not a map key)
+        Effect effect3 = new Effect(
+            "temporary boost",
+            Effect.Attribute.Dexterity,
+            0.05,
+            300,
+            999999,
+            Effect.Type.TEMPORARY_BOOST,
+            0,
+            15
+        );
+
+        // Add effects to the map
+        person.getActiveEffects().put(effect1, 10);
+        person.getActiveEffects().put(effect2, 5);
+
+        // Add effects to the list
+        person.getEffectHistory().add(effect2);
+        person.getEffectHistory().add(effect3);
+
+        Serializer serializer = new Serializer("test", 1);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        try {
+            serializer.serialize(person, outputStream);
+            String json = outputStream.toString();
+
+            // Count occurrences of $mapKeys
+            int count = 0;
+            int index = 0;
+            while ((index = json.indexOf("\"$mapKeys\"", index)) != -1) {
+                count++;
+                index += "\"$mapKeys\"".length();
+            }
+
+            // The $mapKeys should only appear once - in the PersonWithEffectMapAndList object
+            // It should NOT appear in the Effect objects in the effectHistory list
+            assertEquals(1, count,
+                "$mapKeys should only appear in objects that contain maps with complex keys. " +
+                "Expected 1 occurrence, found " + count);
+
+        } catch (SerializationException e) {
+            fail("Serialization failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Test that UUID keys are serialized as simple strings, not as complex object references.
+     * UUID is a value-serializable JDK type and should NOT trigger $mapKeys.
+     */
+    public void testUUIDMapKeysAreSimple() {
+        Map<UUID, String> uuidMap = new HashMap<>();
+        UUID uuid1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID uuid2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        uuidMap.put(uuid1, "Value 1");
+        uuidMap.put(uuid2, "Value 2");
+
+        Serializer serializer = new Serializer("test", 1);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        try {
+            serializer.serialize(uuidMap, outputStream);
+            String json = outputStream.toString();
+
+            // UUID keys should be serialized as their string representation
+            assertTrue(json.contains("00000000-0000-0000-0000-000000000001"),
+                "UUID key should be serialized as string, not as $ref");
+            assertTrue(json.contains("00000000-0000-0000-0000-000000000002"),
+                "UUID key should be serialized as string, not as $ref");
+
+            // There should be NO $ref: prefix for UUID keys
+            assertFalse(json.contains("$ref:"),
+                "UUID keys should not use $ref references");
+
+            // There should be NO $mapKeys section for UUID keys
+            assertFalse(json.contains("$mapKeys"),
+                "UUID keys should not trigger $mapKeys section");
+
+        } catch (SerializationException e) {
+            fail("Serialization failed: " + e.getMessage());
         }
     }
 

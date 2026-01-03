@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file.
 - Complex object map keys: Maps with complex objects as keys are now supported. Complex objects used as map keys are serialized using a `$ref:ID` reference format and stored in a `$mapKeys` section with full object definitions. This enables proper serialization and deserialization of maps with complex object keys (e.g., custom classes like `Effect`).
 
 ### Fixed
-- **Critical**: Fixed JDK classes (e.g., UUID) used as map keys not being properly serialized - they are now serialized using `$value` format when applicable, avoiding Java 9+ module access restrictions on private constructors
+- **Critical**: Fixed JDK classes (e.g., UUID, Date) used as map keys being incorrectly treated as complex objects. Value-serializable JDK types are now serialized as simple string keys using their canonical string representation, avoiding unnecessary `$ref` references and `$mapKeys` sections
 - **Critical**: Fixed `$ref` references in map values not being resolved - map values that reference other objects via `$ref` were returned as raw `LinkedHashMap` instead of the referenced object
 - **Critical**: Fixed silent exception swallowing in `convertToMap` that caused nested objects in maps to be returned as raw `LinkedHashMap` instead of being properly deserialized
 - Removed duplicate AtomicReference handling code in Deserializer

@@ -14,8 +14,10 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Serializes Java objects to JSON format.
@@ -29,6 +31,9 @@ public class Serializer {
     
     // Track complex objects used as map keys
     private final Map<Object, String> mapKeyToIdMap = new IdentityHashMap<>();
+    
+    // Track which objects have maps with complex keys
+    private final Set<String> objectsWithComplexMapKeys = new HashSet<>();
 
     /**
      * Creates a new Serializer with the specified serialization key and starting ID.
@@ -80,7 +85,7 @@ public class Serializer {
         // JDK Maps (LinkedHashMap, HashMap, TreeMap, etc.) should be serialized as plain JSON maps,
         // not as objects with $id, $class, and fields metadata
         if (object instanceof Map) {
-            return serializeMap(object);
+            return serializeMap(object, null);
         }
 
         // Check if this is a JDK class that can be serialized as a simple value
@@ -123,11 +128,11 @@ public class Serializer {
 
         // Serialize fields
         sb.append("\"fields\":{");
-        serializeFields(object, sb);
+        serializeFields(object, objectId, sb);
         sb.append("}");
 
-        // Add $mapKeys section if there are complex objects used as map keys
-        if (!mapKeyToIdMap.isEmpty()) {
+        // Add $mapKeys section only if this object has maps with complex keys
+        if (objectsWithComplexMapKeys.contains(objectId)) {
             sb.append(",");
             serializeMapKeys(sb);
         }
@@ -141,10 +146,11 @@ public class Serializer {
      * Serializes all fields of an object.
      *
      * @param object the object whose fields to serialize
+     * @param objectId ID of the object being serialized
      * @param sb the StringBuilder to append to
      * @throws SerializationException if a serialization error occurs
      */
-    private void serializeFields(Object object, StringBuilder sb) throws SerializationException {
+    private void serializeFields(Object object, String objectId, StringBuilder sb) throws SerializationException {
         Field[] fields = FieldInspector.getAllFields(object.getClass());
         boolean first = true;
 
@@ -212,7 +218,8 @@ public class Serializer {
 
                     case MAP:
                         // Map - serialize entries, handling nested objects
-                        sb.append(serializeMap(fieldValue));
+                        // Pass the current object ID to track if this map has complex keys
+                        sb.append(serializeMap(fieldValue, objectId));
                         break;
 
                     case ARRAY:
@@ -276,10 +283,11 @@ public class Serializer {
      * Serializes a map, handling nested objects.
      *
      * @param map the map to serialize
+     * @param parentObjectId the ID of the object containing this map
      * @return the JSON string representation
      * @throws SerializationException if a serialization error occurs
      */
-    private String serializeMap(Object map) throws SerializationException {
+    private String serializeMap(Object map, String parentObjectId) throws SerializationException {
         if (map == null) {
             return "null";
         }
@@ -300,9 +308,16 @@ public class Serializer {
             // For enum keys, use the name() method to get the enum constant name
             if (key != null && key.getClass().isEnum()) {
                 keyString = ((Enum<?>) key).name();
-            } else if (key != null && isSimpleType(key)) {
-                // Simple types (String, Number, etc.) - use toString()
-                keyString = key.toString();
+            } else if (key != null && isSimpleMapKey(key)) {
+                // Simple map key (primitive, String, Number, Atomic, or value-serializable JDK type like UUID)
+                if (ValueSerializer.canSerializeAsValue(key.getClass())) {
+                    // Use ValueSerializer for canonical string representation (e.g., UUID, Date)
+                    Object serializedValue = ValueSerializer.serializeAsValue(key);
+                    keyString = serializedValue != null ? serializedValue.toString() : key.toString();
+                } else {
+                    // Standard simple types - use toString()
+                    keyString = key.toString();
+                }
             } else if (key != null) {
                 // Complex object key - register and use reference
                 String keyId;
@@ -315,6 +330,10 @@ public class Serializer {
                     objectRegistry.register(keyId, key);
                 }
                 keyString = "$ref:" + keyId;
+                // Mark the parent object as having a map with complex keys
+                if (parentObjectId != null) {
+                    objectsWithComplexMapKeys.add(parentObjectId);
+                }
             } else {
                 keyString = "null";
             }
@@ -334,7 +353,8 @@ public class Serializer {
                 // Nested Map - serialize as JSON map (recursively)
                 // This handles JDK Map implementations (LinkedHashMap, HashMap, etc.)
                 // which should be serialized as plain JSON maps, not as objects with metadata
-                sb.append(serializeMap(value));
+                // Pass null as parentObjectId since nested maps are JDK Maps, not custom objects
+                sb.append(serializeMap(value, null));
             } else if (value.getClass().isArray()) {
                 // Array - serialize as JSON array
                 sb.append(serializeArray(value));
@@ -430,6 +450,39 @@ public class Serializer {
         }
 
         // Everything else is a complex object
+        return false;
+    }
+
+    /**
+     * Checks if an object can be used as a simple map key.
+     * This includes all simple types plus value-serializable JDK types like UUID, Date, etc.
+     * These types can be serialized as strings and reconstructed from that string representation.
+     *
+     * @param key the key object to check
+     * @return true if the key can be serialized as a simple string, false if it requires $ref
+     */
+    private boolean isSimpleMapKey(Object key) {
+        if (key == null) {
+            return true;
+        }
+
+        // Enums use name() - handled separately in serializeMap
+        if (key.getClass().isEnum()) {
+            return true;
+        }
+
+        // Standard simple types (primitives, wrappers, String, Number, Atomics)
+        if (isSimpleType(key)) {
+            return true;
+        }
+
+        // Value-serializable JDK types like UUID, Date, etc.
+        // These can be serialized via toString() and reconstructed via fromString() or constructor
+        if (ValueSerializer.canSerializeAsValue(key.getClass())) {
+            return true;
+        }
+
+        // Everything else is a complex object requiring $ref
         return false;
     }
 
@@ -532,7 +585,7 @@ public class Serializer {
             
             // Serialize fields
             sb.append("\"fields\":{");
-            serializeFields(key, sb);
+            serializeFields(key, keyId, sb);
             sb.append("}");
             
             sb.append("}");

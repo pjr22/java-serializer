@@ -6,6 +6,14 @@ package com.pjr22.serialization.test;
 public abstract class TestCase {
     private int passed = 0;
     private int failed = 0;
+    
+    /**
+     * Returns the number of failed tests in this test case.
+     * @return the number of failed tests
+     */
+    public int getFailedCount() {
+        return failed;
+    }
 
     /**
      * Run all test methods in this test case.

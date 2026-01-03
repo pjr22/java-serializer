@@ -32,6 +32,7 @@ public class TestRunner {
         runTest("JdkMapSerializationTest", JdkMapSerializationTest::new);
         runTest("AtomicMapValueTest", AtomicMapValueTest::new);
         runTest("MapValueObjectDeserializationTest", MapValueObjectDeserializationTest::new);
+        runTest("ComplexObjectMapKeyTest", ComplexObjectMapKeyTest::new);
 
         System.out.println();
         System.out.println("========================================");
@@ -54,8 +55,15 @@ public class TestRunner {
             System.out.println("--- Running " + testName + " ---");
             TestCase test = factory.create();
             test.run();
-            totalPassed++;
-            System.out.println("--- " + testName + " completed ---");
+            
+            // Check if any individual tests failed within this test class
+            if (test.getFailedCount() > 0) {
+                totalFailed++;
+                System.out.println("--- " + testName + " completed with failures ---");
+            } else {
+                totalPassed++;
+                System.out.println("--- " + testName + " completed ---");
+            }
         } catch (Exception e) {
             totalFailed++;
             System.out.println("--- " + testName + " FAILED ---");

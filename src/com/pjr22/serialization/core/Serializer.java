@@ -501,6 +501,19 @@ public class Serializer {
             
             sb.append("\"").append(keyId).append("\":");
             
+            // Check if this key can be serialized as a simple value (for JDK classes like UUID)
+            if (ValueSerializer.canSerializeAsValue(key.getClass())) {
+                Object value = ValueSerializer.serializeAsValue(key);
+                if (value != null) {
+                    // Serialize as a simple value with class metadata
+                    sb.append("{");
+                    sb.append("\"$id\":\"").append(keyId).append("\",");
+                    sb.append("\"$class\":\"").append(key.getClass().getName()).append("\",");
+                    sb.append("\"$value\":").append(JsonSerializer.serialize(value)).append("}");
+                    continue;
+                }
+            }
+            
             // Serialize the key object as a full object definition
             // Note: We use the same ID that was generated in serializeMap() for consistency
             String objectId = keyId; // Use the same ID as the map key reference

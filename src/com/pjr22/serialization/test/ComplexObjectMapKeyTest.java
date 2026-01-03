@@ -60,9 +60,6 @@ public class ComplexObjectMapKeyTest extends TestCase {
             serializer.serialize(person, outputStream);
             String json = outputStream.toString();
 
-            System.out.println("Serialized JSON:");
-            System.out.println(json);
-
             // The current implementation uses toString() for complex object keys,
             // which produces output like:
             // "Effect [description=increased constitution, ...]"
@@ -120,9 +117,6 @@ public class ComplexObjectMapKeyTest extends TestCase {
         try {
             serializer.serialize(person, outputStream);
             String json = outputStream.toString();
-
-            System.out.println("Serialized JSON:");
-            System.out.println(json);
 
             Deserializer<PersonWithEffectMap> deserializer = new Deserializer<>(PersonWithEffectMap.class);
             ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());

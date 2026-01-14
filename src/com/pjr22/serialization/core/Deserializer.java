@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Deserializes Java objects from JSON format.
  * Handles object references, circular references, and complex object graphs.
+ *
+ * @param <T> the type of object to deserialize
  */
 public class Deserializer<T> {
 

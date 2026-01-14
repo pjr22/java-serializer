@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Test class with a Map<Enum, Object> field to reproduce the double-quote issue.
+ * Test class with a {@code Map<Enum, Object>} field to reproduce the double-quote issue.
  */
 public class PersonWithEnumMap {
     private String name;

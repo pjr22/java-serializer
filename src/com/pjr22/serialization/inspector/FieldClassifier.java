@@ -20,20 +20,34 @@ public class FieldClassifier {
      * Represents category of a field for serialization.
      */
     public enum FieldCategory {
-        PRIMITIVE,          // byte, short, int, long, float, double, char, boolean
-        STRING,             // java.lang.String
-        NUMBER,             // java.lang.Number and subclasses except BigDecimal
-        BIG_DECIMAL,        // java.math.BigDecimal
-        ATOMIC_BOOLEAN,     // java.util.concurrent.atomic.AtomicBoolean
-        ATOMIC_INTEGER,     // java.util.concurrent.atomic.AtomicInteger
-        ATOMIC_LONG,        // java.util.concurrent.atomic.AtomicLong
-        ATOMIC_REFERENCE,   // java.util.concurrent.atomic.AtomicReference
-        VALUE_SERIALIZABLE, // JDK classes that can be serialized as simple values (UUID, Date, Random, etc.)
-        COLLECTION,         // List, Set, etc.
-        MAP,                // Map implementations
-        ARRAY,              // Arrays
-        ENUM,               // Enum types
-        OBJECT_REFERENCE    // All other Object types
+        /** Primitive types: byte, short, int, long, float, double, char, boolean */
+        PRIMITIVE,
+        /** String type: java.lang.String */
+        STRING,
+        /** Number types: java.lang.Number and subclasses except BigDecimal */
+        NUMBER,
+        /** BigDecimal type: java.math.BigDecimal */
+        BIG_DECIMAL,
+        /** AtomicBoolean type: java.util.concurrent.atomic.AtomicBoolean */
+        ATOMIC_BOOLEAN,
+        /** AtomicInteger type: java.util.concurrent.atomic.AtomicInteger */
+        ATOMIC_INTEGER,
+        /** AtomicLong type: java.util.concurrent.atomic.AtomicLong */
+        ATOMIC_LONG,
+        /** AtomicReference type: java.util.concurrent.atomic.AtomicReference */
+        ATOMIC_REFERENCE,
+        /** Value-serializable JDK types: UUID, Date, Random, etc. */
+        VALUE_SERIALIZABLE,
+        /** Collection types: List, Set, etc. */
+        COLLECTION,
+        /** Map implementations */
+        MAP,
+        /** Array types */
+        ARRAY,
+        /** Enum types */
+        ENUM,
+        /** Object references: all other Object types */
+        OBJECT_REFERENCE
     }
 
     /**

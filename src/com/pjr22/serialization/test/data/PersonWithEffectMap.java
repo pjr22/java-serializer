@@ -4,7 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Test class with a Map<ComplexObject, Integer> field to test complex object map keys.
+ * Test class with a {@code Map<ComplexObject, Integer>} field to test complex object map keys.
  */
 public class PersonWithEffectMap {
     private String name;

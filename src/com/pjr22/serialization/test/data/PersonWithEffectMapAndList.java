@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Test class with both a Map<ComplexObject, Integer> field and a List<ComplexObject> field.
+ * Test class with both a {@code Map<ComplexObject, Integer>} field and a {@code List<ComplexObject>} field.
  * This reproduces the issue where $mapKeys appears in nested objects that don't
  * have maps with complex keys.
  */

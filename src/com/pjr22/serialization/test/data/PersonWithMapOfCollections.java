@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Test class with a Map<String, List<String>> field.
+ * Test class with a {@code Map<String, List<String>>} field.
  */
 public class PersonWithMapOfCollections {
     private String name;
